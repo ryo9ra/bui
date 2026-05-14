@@ -37,21 +37,30 @@ pub enum Modal {
 }
 
 pub struct InputState {
-    pub prompt: &'static str,
+    pub prompt: String,
     pub value: String,
     pub mode: InputMode,
 }
 
 pub enum InputMode {
     CreateBranch,
+    RenameBranch { old: String },
 }
 
 impl InputState {
     pub fn create_branch() -> Self {
         Self {
-            prompt: "Create branch",
+            prompt: "Create branch".to_string(),
             value: String::new(),
             mode: InputMode::CreateBranch,
+        }
+    }
+
+    pub fn rename_branch(old: String) -> Self {
+        Self {
+            prompt: format!("Rename '{old}' to"),
+            value: old.clone(),
+            mode: InputMode::RenameBranch { old },
         }
     }
 }
@@ -173,6 +182,11 @@ impl App {
             KeyCode::Char('c') if self.active_tab == Tab::Local => {
                 self.input = Some(InputState::create_branch());
             }
+            KeyCode::Char('r') if self.active_tab == Tab::Local => {
+                if let Some(old) = self.selected_name() {
+                    self.input = Some(InputState::rename_branch(old));
+                }
+            }
             KeyCode::Char('/') if self.active_tab == Tab::Local => self.start_search(),
             KeyCode::Esc if !self.filter.is_empty() => self.clear_filter(),
             _ => {}
@@ -264,6 +278,7 @@ impl App {
         }
         match input.mode {
             InputMode::CreateBranch => self.do_create_branch(&value),
+            InputMode::RenameBranch { old } => self.do_rename_branch(&old, &value),
         }
     }
 
@@ -272,6 +287,20 @@ impl App {
             Ok(()) => {
                 self.refresh(Some(name));
                 self.status = format!("created {name}");
+            }
+            Err(e) => self.status = format!("error: {e}"),
+        }
+    }
+
+    fn do_rename_branch(&mut self, old: &str, new: &str) {
+        if old == new {
+            self.status = "rename skipped (no change)".to_string();
+            return;
+        }
+        match self.repo.rename_branch(old, new) {
+            Ok(()) => {
+                self.refresh(Some(new));
+                self.status = format!("renamed {old} -> {new}");
             }
             Err(e) => self.status = format!("error: {e}"),
         }
