@@ -1,0 +1,42 @@
+pub mod branch_list;
+pub mod confirm;
+pub mod detail;
+pub mod diff;
+pub mod help;
+pub mod input;
+pub mod layout;
+pub mod statusbar;
+pub mod tabs;
+
+use ratatui::Frame;
+
+use crate::app::{App, Modal};
+use crate::ui::layout::MainSpec;
+
+pub fn draw(f: &mut Frame, app: &App) {
+    let area = f.area();
+    let rects = app.layout.compute(area);
+
+    if app.layout.tabs {
+        tabs::draw(f, app, rects.tabs);
+    }
+    match &app.layout.main {
+        MainSpec::BranchList => branch_list::draw(f, app, rects.main),
+        MainSpec::Split(_, _) => {
+            if let Some((left, _right)) = rects.main_split {
+                branch_list::draw(f, app, left);
+                // right pane (Detail/Diff) lands in v0.2 / v0.3.
+            } else {
+                branch_list::draw(f, app, rects.main);
+            }
+        }
+    }
+    if app.layout.statusbar {
+        statusbar::draw(f, app, rects.statusbar);
+    }
+    if let Some(modal) = &app.modal {
+        match modal {
+            Modal::Help => help::draw(f, area),
+        }
+    }
+}
