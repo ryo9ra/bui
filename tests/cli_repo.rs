@@ -298,6 +298,36 @@ fn push_sets_upstream_automatically_for_new_branch() {
 }
 
 #[test]
+fn set_upstream_configures_tracking_for_local_branch() {
+    let (work, _upstream) = init_work_and_bare_upstream();
+    let repo = CliRepo::at(work.path().to_path_buf());
+
+    // Push a fresh branch so its remote-tracking counterpart exists, then
+    // explicitly drop the tracking config so set_upstream() actually has
+    // work to do.
+    run_git(work.path(), &["checkout", "-q", "-b", "feature/track-me"]);
+    commit_on(work.path(), "m", "marker");
+    run_git(work.path(), &["push", "-q", "-u", "origin", "feature/track-me"]);
+    run_git(work.path(), &["branch", "--unset-upstream"]);
+
+    repo.set_upstream("feature/track-me", "origin/feature/track-me")
+        .unwrap();
+
+    let upstream_name = String::from_utf8(
+        Command::new("git")
+            .current_dir(work.path())
+            .args(["rev-parse", "--abbrev-ref", "feature/track-me@{upstream}"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    assert_eq!(upstream_name, "origin/feature/track-me");
+}
+
+#[test]
 fn pull_without_upstream_returns_actionable_error() {
     let (work, _upstream) = init_work_and_bare_upstream();
     let repo = CliRepo::at(work.path().to_path_buf());

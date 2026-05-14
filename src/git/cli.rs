@@ -54,4 +54,7 @@ impl Repo for CliRepo {
     fn push(&self) -> Result<()> {
         ops::remote::push(&self.workdir)
     }
+    fn set_upstream(&self, branch: &str, upstream: &str) -> Result<()> {
+        ops::branches::set_upstream(&self.workdir, branch, upstream)
+    }
 }

@@ -31,6 +31,7 @@ pub struct App {
     pub modal: Option<Modal>,
     pub input: Option<InputState>,
     pub confirm: Option<ConfirmState>,
+    pub upstream_picker: Option<UpstreamPickerState>,
     pub layout: LayoutSpec,
     pub should_quit: bool,
     pub dirty: bool,
@@ -87,6 +88,52 @@ pub struct ConfirmState {
     pub focus: ConfirmChoice,
 }
 
+pub struct UpstreamPickerState {
+    /// Local branch we're configuring tracking for.
+    pub branch: String,
+    /// All available remote-branch refnames, e.g. `origin/feature/foo`.
+    pub candidates: Vec<String>,
+    /// Cursor into `visible_candidates()`.
+    pub selected: usize,
+    /// Case-insensitive substring filter applied to candidates.
+    pub filter: String,
+}
+
+impl UpstreamPickerState {
+    pub fn new(branch: String, candidates: Vec<String>) -> Self {
+        // If a same-named remote branch exists (e.g. local `feature/foo`
+        // → `origin/feature/foo`), pre-select it.
+        let needle = format!("/{branch}");
+        let selected = candidates
+            .iter()
+            .position(|c| c.ends_with(&needle))
+            .unwrap_or(0);
+        Self {
+            branch,
+            candidates,
+            selected,
+            filter: String::new(),
+        }
+    }
+
+    pub fn visible_candidates(&self) -> Vec<&String> {
+        if self.filter.is_empty() {
+            return self.candidates.iter().collect();
+        }
+        let needle = self.filter.to_lowercase();
+        self.candidates
+            .iter()
+            .filter(|c| c.to_lowercase().contains(&needle))
+            .collect()
+    }
+
+    pub fn current(&self) -> Option<String> {
+        self.visible_candidates()
+            .get(self.selected)
+            .map(|s| (*s).clone())
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ConfirmChoice {
     Yes,
@@ -116,6 +163,7 @@ impl App {
             modal: None,
             input: None,
             confirm: None,
+            upstream_picker: None,
             layout: LayoutSpec::default_layout(),
             should_quit: false,
             dirty: true,
@@ -296,6 +344,10 @@ impl App {
             self.handle_confirm_key(key);
             return;
         }
+        if self.upstream_picker.is_some() {
+            self.handle_upstream_picker_key(key);
+            return;
+        }
         if self.search_active {
             self.handle_search_key(key);
             return;
@@ -335,6 +387,7 @@ impl App {
             KeyCode::Char('P') if self.pending_task.is_none() => {
                 self.dispatch(Action::Push, "pushing");
             }
+            KeyCode::Char('u') if self.active_tab == Tab::Local => self.open_upstream_picker(),
             _ => {}
         }
         self.dirty = true;
@@ -393,6 +446,67 @@ impl App {
     fn cancel_confirm(&mut self) {
         self.confirm = None;
         self.status = "cancelled".to_string();
+    }
+
+    fn open_upstream_picker(&mut self) {
+        let Some(branch) = self.selected_name() else {
+            return;
+        };
+        if self.remote_branches.is_empty() {
+            self.status = "no remote branches — run fetch (f) first".to_string();
+            return;
+        }
+        let candidates: Vec<String> = self
+            .remote_branches
+            .iter()
+            .map(|r| r.full_name.clone())
+            .collect();
+        self.upstream_picker = Some(UpstreamPickerState::new(branch, candidates));
+    }
+
+    fn handle_upstream_picker_key(&mut self, key: KeyEvent) {
+        let Some(picker) = self.upstream_picker.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.upstream_picker = None;
+                self.status = "cancelled".to_string();
+            }
+            KeyCode::Enter => self.submit_upstream_picker(),
+            KeyCode::Up if picker.selected > 0 => picker.selected -= 1,
+            KeyCode::Down if picker.selected + 1 < picker.visible_candidates().len() => {
+                picker.selected += 1;
+            }
+            KeyCode::Backspace => {
+                picker.filter.pop();
+                picker.selected = 0;
+            }
+            KeyCode::Char(c) => {
+                picker.filter.push(c);
+                picker.selected = 0;
+            }
+            _ => {}
+        }
+        self.dirty = true;
+    }
+
+    fn submit_upstream_picker(&mut self) {
+        let Some(picker) = self.upstream_picker.take() else {
+            return;
+        };
+        let Some(upstream) = picker.current() else {
+            self.status = "no candidate selected".to_string();
+            return;
+        };
+        let branch = picker.branch;
+        match self.repo.set_upstream(&branch, &upstream) {
+            Ok(()) => {
+                self.refresh(Some(&branch));
+                self.status = format!("set upstream {branch} -> {upstream}");
+            }
+            Err(e) => self.status = format!("error: {e}"),
+        }
     }
 
     fn execute_confirm(&mut self, action: ConfirmAction) {
@@ -621,6 +735,9 @@ mod tests {
             Ok(())
         }
         fn push(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn set_upstream(&self, _: &str, _: &str) -> anyhow::Result<()> {
             Ok(())
         }
     }
@@ -971,5 +1088,105 @@ mod tests {
         let pending_before = app.spinner_frame;
         app.on_tick();
         assert_eq!(app.spinner_frame, pending_before.wrapping_add(1));
+    }
+
+    fn remote(remote: &str, name: &str) -> RemoteBranch {
+        RemoteBranch {
+            remote: remote.to_string(),
+            name: name.to_string(),
+            full_name: format!("{remote}/{name}"),
+            short_sha: "abc1234".to_string(),
+            subject: "subj".to_string(),
+            rel_date: "1 hour ago".to_string(),
+        }
+    }
+
+    #[test]
+    fn upstream_picker_preselects_same_named_remote() {
+        let candidates = vec![
+            "origin/main".to_string(),
+            "origin/feature/foo".to_string(),
+            "upstream/main".to_string(),
+        ];
+        let picker = UpstreamPickerState::new("feature/foo".to_string(), candidates);
+        assert_eq!(picker.selected, 1);
+    }
+
+    #[test]
+    fn upstream_picker_falls_back_to_zero_without_match() {
+        let candidates = vec!["origin/main".to_string(), "upstream/main".to_string()];
+        let picker = UpstreamPickerState::new("feature/foo".to_string(), candidates);
+        assert_eq!(picker.selected, 0);
+    }
+
+    #[test]
+    fn upstream_picker_filter_case_insensitive_substring() {
+        let candidates = vec![
+            "origin/main".to_string(),
+            "origin/feature/foo".to_string(),
+            "Upstream/Main".to_string(),
+        ];
+        let mut picker = UpstreamPickerState::new("foo".to_string(), candidates);
+        picker.filter = "main".to_string();
+        let visible: Vec<_> = picker
+            .visible_candidates()
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        assert_eq!(visible, ["origin/main", "Upstream/Main"]);
+    }
+
+    #[test]
+    fn pressing_u_opens_picker_when_remotes_exist() {
+        let mut app = app_with(vec![br("feature/foo", true)]);
+        app.remote_branches = vec![remote("origin", "feature/foo")];
+        app.on_key(k(KeyCode::Char('u')));
+        let picker = app.upstream_picker.as_ref().expect("picker should be open");
+        assert_eq!(picker.branch, "feature/foo");
+        assert_eq!(picker.candidates, vec!["origin/feature/foo".to_string()]);
+    }
+
+    #[test]
+    fn pressing_u_with_no_remotes_sets_status_and_skips() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.on_key(k(KeyCode::Char('u')));
+        assert!(app.upstream_picker.is_none());
+        assert!(app.status.contains("no remote branches"));
+    }
+
+    #[test]
+    fn upstream_picker_arrow_navigates_visible_list() {
+        let mut app = app_with(vec![br("foo", true)]);
+        app.remote_branches = vec![
+            remote("origin", "main"),
+            remote("origin", "feature/bar"),
+            remote("origin", "feature/baz"),
+        ];
+        app.on_key(k(KeyCode::Char('u')));
+        // After open, selected = 0 (no name match for "foo")
+        app.handle_upstream_picker_key(k(KeyCode::Down));
+        assert_eq!(app.upstream_picker.as_ref().unwrap().selected, 1);
+        app.handle_upstream_picker_key(k(KeyCode::Up));
+        assert_eq!(app.upstream_picker.as_ref().unwrap().selected, 0);
+    }
+
+    #[test]
+    fn upstream_picker_enter_calls_set_upstream_and_closes() {
+        let mut app = app_with(vec![br("feature/foo", true)]);
+        app.remote_branches = vec![remote("origin", "feature/foo")];
+        app.on_key(k(KeyCode::Char('u')));
+        app.handle_upstream_picker_key(k(KeyCode::Enter));
+        assert!(app.upstream_picker.is_none());
+        assert!(app.status.starts_with("set upstream "));
+    }
+
+    #[test]
+    fn upstream_picker_esc_cancels() {
+        let mut app = app_with(vec![br("foo", true)]);
+        app.remote_branches = vec![remote("origin", "feature/foo")];
+        app.on_key(k(KeyCode::Char('u')));
+        app.handle_upstream_picker_key(k(KeyCode::Esc));
+        assert!(app.upstream_picker.is_none());
+        assert_eq!(app.status, "cancelled");
     }
 }

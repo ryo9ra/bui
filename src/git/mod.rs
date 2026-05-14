@@ -16,4 +16,5 @@ pub trait Repo: Send + Sync {
     fn fetch(&self, remote: Option<&str>) -> Result<()>;
     fn pull(&self) -> Result<()>;
     fn push(&self) -> Result<()>;
+    fn set_upstream(&self, branch: &str, upstream: &str) -> Result<()>;
 }

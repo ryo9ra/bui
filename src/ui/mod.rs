@@ -7,6 +7,7 @@ pub mod input;
 pub mod layout;
 pub mod statusbar;
 pub mod tabs;
+pub mod upstream_picker;
 
 use ratatui::Frame;
 
@@ -39,6 +40,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     if let Some(input_state) = &app.input {
         input::draw(f, area, input_state);
+    }
+    if let Some(picker) = &app.upstream_picker {
+        upstream_picker::draw(f, area, picker);
     }
     if let Some(confirm_state) = &app.confirm {
         confirm::draw(f, area, confirm_state);

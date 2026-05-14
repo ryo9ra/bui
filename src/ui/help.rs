@@ -21,6 +21,7 @@ c            (Local) create new branch from HEAD
 r            (Local) rename selected branch
 d            (Local) delete selected branch (confirm)
 D            (Local) force-delete selected branch (confirm)
+u            (Local) set upstream from remote-branch picker
 /            incremental search (filter by name)
 f            fetch all remotes (async)
 p            pull current branch (async)
