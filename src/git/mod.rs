@@ -6,7 +6,6 @@ pub use types::Branch;
 
 use anyhow::Result;
 
-#[allow(dead_code)]
 pub trait Repo: Send + Sync {
     fn list_local_branches(&self) -> Result<Vec<Branch>>;
     fn checkout(&self, name: &str) -> Result<()>;

@@ -1,19 +1,12 @@
 use std::io;
 
 use anyhow::Result;
+use bui::{app, event, git};
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-
-mod app;
-mod config;
-mod error;
-mod event;
-mod git;
-mod task;
-mod ui;
 
 fn main() -> Result<()> {
     install_panic_hook();

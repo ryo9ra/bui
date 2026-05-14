@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Result, anyhow};
@@ -9,8 +10,9 @@ const FIELD_SEP: char = '\x1f';
 const FORMAT: &str =
     "%(HEAD)\x1f%(refname:short)\x1f%(objectname:short)\x1f%(committerdate:relative)\x1f%(contents:subject)";
 
-pub fn list_local() -> Result<Vec<Branch>> {
+pub fn list_local(workdir: &Path) -> Result<Vec<Branch>> {
     let out = Command::new("git")
+        .current_dir(workdir)
         .args([
             "for-each-ref",
             "--sort=-committerdate",
@@ -48,9 +50,11 @@ pub(crate) fn parse_for_each_ref(stdout: &str) -> Vec<Branch> {
     branches
 }
 
-#[allow(dead_code)]
-pub fn checkout(name: &str) -> Result<()> {
-    let out = Command::new("git").args(["switch", name]).output()?;
+pub fn checkout(workdir: &Path, name: &str) -> Result<()> {
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args(["switch", name])
+        .output()?;
     if !out.status.success() {
         return Err(anyhow!(
             "git switch failed: {}",
@@ -60,10 +64,9 @@ pub fn checkout(name: &str) -> Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
-pub fn create(name: &str, from: Option<&str>) -> Result<()> {
+pub fn create(workdir: &Path, name: &str, from: Option<&str>) -> Result<()> {
     let mut cmd = Command::new("git");
-    cmd.args(["branch", name]);
+    cmd.current_dir(workdir).args(["branch", name]);
     if let Some(start) = from {
         cmd.arg(start);
     }
@@ -77,10 +80,10 @@ pub fn create(name: &str, from: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
-pub fn delete(name: &str, force: bool) -> Result<()> {
+pub fn delete(workdir: &Path, name: &str, force: bool) -> Result<()> {
     let flag = if force { "-D" } else { "-d" };
     let out = Command::new("git")
+        .current_dir(workdir)
         .args(["branch", flag, name])
         .output()?;
     if !out.status.success() {
@@ -92,9 +95,9 @@ pub fn delete(name: &str, force: bool) -> Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
-pub fn rename(old: &str, new: &str) -> Result<()> {
+pub fn rename(workdir: &Path, old: &str, new: &str) -> Result<()> {
     let out = Command::new("git")
+        .current_dir(workdir)
         .args(["branch", "-m", old, new])
         .output()?;
     if !out.status.success() {
@@ -142,7 +145,6 @@ mod tests {
 
     #[test]
     fn skips_blank_and_malformed_lines() {
-        // 4-field line is malformed; blank line is skipped.
         let stdout = "*\u{1f}main\u{1f}aaa\u{1f}2d\u{1f}m\n\n \u{1f}foo\u{1f}bbb\u{1f}\n";
         let bs = parse_for_each_ref(stdout);
         assert_eq!(bs.len(), 1);
@@ -151,7 +153,6 @@ mod tests {
 
     #[test]
     fn subject_can_contain_the_field_separator() {
-        // splitn(5, …) means the last field captures any extra separators.
         let line = "*\u{1f}main\u{1f}abc\u{1f}2d\u{1f}has\u{1f}separator\n";
         let bs = parse_for_each_ref(line);
         assert_eq!(bs.len(), 1);

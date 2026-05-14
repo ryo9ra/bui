@@ -10,12 +10,12 @@ and `docs/spec.md` for the full functional spec and roadmap.
 
 ## Status
 
-**v0.1 features wired, untested.** All 14 features in `docs/spec.md` § 4.1
-have keybindings and behaviour. No automated tests yet — pure-logic tests
-(filter, selection clamp, parser) should land before a v0.1.0 release.
-When asked to add a feature, cross-reference `docs/spec.md` first — if it
-belongs to v0.2 / v0.3 / future, confirm with the user before
-implementing.
+**v0.1 feature-complete with tests.** All 14 features in `docs/spec.md`
+§ 4.1 are wired; `cargo test` runs 30 unit tests (parser + App state
+transitions) and 8 integration tests (`CliRepo` against real `git` via
+`tempfile`). When asked to add a feature, cross-reference `docs/spec.md`
+first — if it belongs to v0.2 / v0.3 / future, confirm with the user
+before implementing.
 
 ## Commands
 
