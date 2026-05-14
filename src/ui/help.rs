@@ -19,6 +19,8 @@ g / G        jump to top / bottom
 Enter        checkout selected branch
 c            create new branch from HEAD
 r            rename selected branch
+d            delete selected branch (confirm)
+D            force-delete selected branch (confirm)
 /            incremental search (filter by name)
 Tab/BackTab  switch tab
 R            refresh
@@ -29,7 +31,8 @@ Esc          close modal / cancel input / clear filter
 In search mode: type to filter (case-insensitive substring),
 ↑/↓ navigate, Enter confirm (keep filter), Esc clear & exit.
 
-delete is not yet wired.
+In confirm dialog: y/Y accept, n/N or Esc cancel.
+
 See docs/spec.md for the planned key map.
 ";
     f.render_widget(Paragraph::new(text).block(block), popup);

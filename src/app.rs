@@ -20,6 +20,7 @@ pub struct App {
     pub active_tab: Tab,
     pub modal: Option<Modal>,
     pub input: Option<InputState>,
+    pub confirm: Option<ConfirmState>,
     pub layout: LayoutSpec,
     pub should_quit: bool,
     pub dirty: bool,
@@ -65,6 +66,15 @@ impl InputState {
     }
 }
 
+pub struct ConfirmState {
+    pub prompt: String,
+    pub action: ConfirmAction,
+}
+
+pub enum ConfirmAction {
+    DeleteBranch { name: String, force: bool },
+}
+
 impl App {
     pub fn new(repo: Box<dyn Repo>) -> Self {
         Self {
@@ -77,6 +87,7 @@ impl App {
             active_tab: Tab::Local,
             modal: None,
             input: None,
+            confirm: None,
             layout: LayoutSpec::v0_1_default(),
             should_quit: false,
             dirty: true,
@@ -162,6 +173,10 @@ impl App {
             self.handle_input_key(key);
             return;
         }
+        if self.confirm.is_some() {
+            self.handle_confirm_key(key);
+            return;
+        }
         if self.search_active {
             self.handle_search_key(key);
             return;
@@ -189,9 +204,62 @@ impl App {
             }
             KeyCode::Char('/') if self.active_tab == Tab::Local => self.start_search(),
             KeyCode::Esc if !self.filter.is_empty() => self.clear_filter(),
+            KeyCode::Char('d') if self.active_tab == Tab::Local => self.request_delete(false),
+            KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
             _ => {}
         }
         self.dirty = true;
+    }
+
+    fn request_delete(&mut self, force: bool) {
+        let Some(name) = self.selected_name() else {
+            return;
+        };
+        if self.selected_is_current() {
+            self.status = "cannot delete the current branch".to_string();
+            return;
+        }
+        let prompt = if force {
+            format!("Force-delete '{name}'? (unmerged work will be lost)")
+        } else {
+            format!("Delete '{name}'?")
+        };
+        self.confirm = Some(ConfirmState {
+            prompt,
+            action: ConfirmAction::DeleteBranch { name, force },
+        });
+    }
+
+    fn handle_confirm_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                if let Some(state) = self.confirm.take() {
+                    self.execute_confirm(state.action);
+                }
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                self.confirm = None;
+                self.status = "cancelled".to_string();
+            }
+            _ => {}
+        }
+        self.dirty = true;
+    }
+
+    fn execute_confirm(&mut self, action: ConfirmAction) {
+        match action {
+            ConfirmAction::DeleteBranch { name, force } => self.do_delete_branch(&name, force),
+        }
+    }
+
+    fn do_delete_branch(&mut self, name: &str, force: bool) {
+        match self.repo.delete_branch(name, force) {
+            Ok(()) => {
+                self.refresh(None);
+                self.status = format!("deleted {name}");
+            }
+            Err(e) => self.status = format!("error: {e}"),
+        }
     }
 
     fn start_search(&mut self) {

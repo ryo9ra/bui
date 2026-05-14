@@ -37,6 +37,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     if let Some(input_state) = &app.input {
         input::draw(f, area, input_state);
     }
+    if let Some(confirm_state) = &app.confirm {
+        confirm::draw(f, area, confirm_state);
+    }
     if let Some(modal) = &app.modal {
         match modal {
             Modal::Help => help::draw(f, area),
