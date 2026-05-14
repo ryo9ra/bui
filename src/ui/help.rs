@@ -16,12 +16,14 @@ pub fn draw(f: &mut Frame, area: Rect) {
 j / ↓        move down
 k / ↑        move up
 g / G        jump to top / bottom
+Enter        checkout selected branch
 Tab/BackTab  switch tab
 R            refresh
 ?            toggle this help
-q / Esc      close help / quit
+q            quit
+Esc          close modal
 
-v0.1 skeleton — only navigation and refresh are wired up.
+create / rename / delete / search are not yet wired.
 See docs/spec.md for the planned key map.
 ";
     f.render_widget(Paragraph::new(text).block(block), popup);

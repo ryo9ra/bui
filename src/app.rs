@@ -47,15 +47,54 @@ impl App {
         }
     }
 
-    pub fn initial_refresh(&mut self) {
+    pub fn refresh(&mut self, prefer: Option<&str>) {
         match self.repo.list_local_branches() {
             Ok(bs) => {
                 self.status = format!("{} branches", bs.len());
                 self.local_branches = bs;
+                self.fix_selection(prefer);
             }
             Err(e) => self.status = format!("error: {e}"),
         }
         self.dirty = true;
+    }
+
+    fn refresh_keeping_cursor(&mut self) {
+        let prefer = self
+            .local_branches
+            .get(self.selected)
+            .map(|b| b.name.clone());
+        self.refresh(prefer.as_deref());
+    }
+
+    fn fix_selection(&mut self, prefer: Option<&str>) {
+        if let Some(name) = prefer
+            && let Some(i) = self.local_branches.iter().position(|b| b.name == name)
+        {
+            self.selected = i;
+            return;
+        }
+        if self.selected >= self.local_branches.len() {
+            self.selected = self.local_branches.len().saturating_sub(1);
+        }
+    }
+
+    fn checkout_selected(&mut self) {
+        let Some(branch) = self.local_branches.get(self.selected) else {
+            return;
+        };
+        if branch.is_current {
+            self.status = format!("already on {}", branch.name);
+            return;
+        }
+        let name = branch.name.clone();
+        match self.repo.checkout(&name) {
+            Ok(()) => {
+                self.refresh(Some(&name));
+                self.status = format!("switched to {name}");
+            }
+            Err(e) => self.status = format!("error: {e}"),
+        }
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
@@ -74,7 +113,8 @@ impl App {
             }
             KeyCode::Tab => self.cycle_tab(true),
             KeyCode::BackTab => self.cycle_tab(false),
-            KeyCode::Char('R') => self.initial_refresh(),
+            KeyCode::Char('R') => self.refresh_keeping_cursor(),
+            KeyCode::Enter if self.active_tab == Tab::Local => self.checkout_selected(),
             _ => {}
         }
         self.dirty = true;

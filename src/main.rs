@@ -34,7 +34,7 @@ fn main() -> Result<()> {
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     let repo = git::cli::CliRepo::new();
     let mut app = app::App::new(Box::new(repo));
-    app.initial_refresh();
+    app.refresh(None);
     let (events, _handles) = event::start_event_threads();
     app::run_loop(&mut app, &events, terminal)
 }
