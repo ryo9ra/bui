@@ -26,7 +26,7 @@ pub struct App {
     pub dirty: bool,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Tab {
     Local,
     Remote,
@@ -72,7 +72,7 @@ pub struct ConfirmState {
     pub focus: ConfirmChoice,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ConfirmChoice {
     Yes,
     No,
@@ -454,4 +454,290 @@ pub fn run_loop(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    struct NoopRepo;
+    impl Repo for NoopRepo {
+        fn list_local_branches(&self) -> anyhow::Result<Vec<Branch>> {
+            Ok(vec![])
+        }
+        fn checkout(&self, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn create_branch(&self, _: &str, _: Option<&str>) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn delete_branch(&self, _: &str, _: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn rename_branch(&self, _: &str, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn br(name: &str, current: bool) -> Branch {
+        Branch {
+            name: name.to_string(),
+            is_current: current,
+            short_sha: "abc1234".to_string(),
+            subject: "subject".to_string(),
+            rel_date: "1 day ago".to_string(),
+        }
+    }
+
+    fn app_with(branches: Vec<Branch>) -> App {
+        let mut a = App::new(Box::new(NoopRepo));
+        a.local_branches = branches;
+        a
+    }
+
+    fn k(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn visible_branches_empty_filter_returns_all() {
+        let app = app_with(vec![br("main", true), br("foo", false)]);
+        assert_eq!(app.visible_branches().len(), 2);
+    }
+
+    #[test]
+    fn visible_branches_substring_match_is_case_insensitive() {
+        let mut app = app_with(vec![
+            br("main", true),
+            br("feature/foo", false),
+            br("FEATURE/Bar", false),
+        ]);
+        app.filter = "feature".to_string();
+        let names: Vec<_> = app
+            .visible_branches()
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect();
+        assert_eq!(names, ["feature/foo", "FEATURE/Bar"]);
+    }
+
+    #[test]
+    fn visible_branches_no_match_returns_empty() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.filter = "xyz".to_string();
+        assert!(app.visible_branches().is_empty());
+    }
+
+    #[test]
+    fn fix_selection_clamps_when_out_of_range() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 5;
+        app.fix_selection(None);
+        assert_eq!(app.selected, 1);
+    }
+
+    #[test]
+    fn fix_selection_finds_preferred_branch() {
+        let mut app = app_with(vec![br("main", true), br("foo", false), br("bar", false)]);
+        app.selected = 0;
+        app.fix_selection(Some("bar"));
+        assert_eq!(app.selected, 2);
+    }
+
+    #[test]
+    fn fix_selection_falls_back_when_preferred_missing() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 5;
+        app.fix_selection(Some("nonexistent"));
+        assert_eq!(app.selected, 1);
+    }
+
+    #[test]
+    fn fix_selection_uses_visible_count_when_filter_active() {
+        let mut app = app_with(vec![br("main", true), br("foo", false), br("foobar", false)]);
+        app.filter = "foo".to_string();
+        app.selected = 5;
+        app.fix_selection(None);
+        assert_eq!(app.selected, 1);
+    }
+
+    #[test]
+    fn cycle_tab_forward_wraps_around() {
+        let mut app = app_with(vec![]);
+        app.cycle_tab(true);
+        assert_eq!(app.active_tab, Tab::Remote);
+        app.cycle_tab(true);
+        assert_eq!(app.active_tab, Tab::Worktree);
+        app.cycle_tab(true);
+        assert_eq!(app.active_tab, Tab::Local);
+    }
+
+    #[test]
+    fn cycle_tab_backward_wraps_around() {
+        let mut app = app_with(vec![]);
+        app.cycle_tab(false);
+        assert_eq!(app.active_tab, Tab::Worktree);
+        app.cycle_tab(false);
+        assert_eq!(app.active_tab, Tab::Remote);
+        app.cycle_tab(false);
+        assert_eq!(app.active_tab, Tab::Local);
+    }
+
+    #[test]
+    fn start_search_resets_filter_and_cursor() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.filter = "stale".to_string();
+        app.selected = 1;
+        app.start_search();
+        assert!(app.search_active);
+        assert!(app.filter.is_empty());
+        assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn clear_filter_resets_filter() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.filter = "x".to_string();
+        app.clear_filter();
+        assert!(app.filter.is_empty());
+    }
+
+    #[test]
+    fn handle_search_key_appends_chars_and_resets_cursor() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.search_active = true;
+        app.selected = 1;
+        app.handle_search_key(k(KeyCode::Char('f')));
+        app.handle_search_key(k(KeyCode::Char('o')));
+        assert_eq!(app.filter, "fo");
+        assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn handle_search_key_enter_keeps_filter_and_exits_mode() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.search_active = true;
+        app.filter = "foo".to_string();
+        app.handle_search_key(k(KeyCode::Enter));
+        assert!(!app.search_active);
+        assert_eq!(app.filter, "foo");
+    }
+
+    #[test]
+    fn handle_search_key_esc_clears_filter_and_exits_mode() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.search_active = true;
+        app.filter = "x".to_string();
+        app.handle_search_key(k(KeyCode::Esc));
+        assert!(!app.search_active);
+        assert!(app.filter.is_empty());
+    }
+
+    #[test]
+    fn handle_search_key_backspace_pops_char() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.search_active = true;
+        app.filter = "foo".to_string();
+        app.handle_search_key(k(KeyCode::Backspace));
+        assert_eq!(app.filter, "fo");
+    }
+
+    #[test]
+    fn request_delete_blocks_current_branch() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.selected = 0;
+        app.request_delete(false);
+        assert!(app.confirm.is_none());
+        assert!(app.status.contains("cannot delete"));
+    }
+
+    #[test]
+    fn request_delete_opens_confirm_focused_on_no() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 1;
+        app.request_delete(false);
+        let state = app.confirm.as_ref().expect("confirm should be set");
+        assert_eq!(state.focus, ConfirmChoice::No);
+        match &state.action {
+            ConfirmAction::DeleteBranch { name, force } => {
+                assert_eq!(name, "foo");
+                assert!(!force);
+            }
+        }
+    }
+
+    #[test]
+    fn request_delete_force_flag_is_propagated() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 1;
+        app.request_delete(true);
+        let state = app.confirm.as_ref().unwrap();
+        match &state.action {
+            ConfirmAction::DeleteBranch { force, .. } => assert!(force),
+        }
+    }
+
+    #[test]
+    fn handle_confirm_key_arrow_keys_move_focus() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 1;
+        app.request_delete(false);
+        app.handle_confirm_key(k(KeyCode::Left));
+        assert_eq!(app.confirm.as_ref().unwrap().focus, ConfirmChoice::Yes);
+        app.handle_confirm_key(k(KeyCode::Right));
+        assert_eq!(app.confirm.as_ref().unwrap().focus, ConfirmChoice::No);
+    }
+
+    #[test]
+    fn handle_confirm_key_tab_toggles_focus() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 1;
+        app.request_delete(false);
+        app.handle_confirm_key(k(KeyCode::Tab));
+        assert_eq!(app.confirm.as_ref().unwrap().focus, ConfirmChoice::Yes);
+        app.handle_confirm_key(k(KeyCode::Tab));
+        assert_eq!(app.confirm.as_ref().unwrap().focus, ConfirmChoice::No);
+    }
+
+    #[test]
+    fn handle_confirm_key_enter_with_no_focus_cancels() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 1;
+        app.request_delete(false);
+        app.handle_confirm_key(k(KeyCode::Enter));
+        assert!(app.confirm.is_none());
+        assert_eq!(app.status, "cancelled");
+    }
+
+    #[test]
+    fn handle_confirm_key_enter_with_yes_focus_executes() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 1;
+        app.request_delete(false);
+        app.handle_confirm_key(k(KeyCode::Left));
+        app.handle_confirm_key(k(KeyCode::Enter));
+        assert!(app.confirm.is_none());
+        assert!(app.status.starts_with("deleted "));
+    }
+
+    #[test]
+    fn handle_confirm_key_y_shortcut_accepts_immediately() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 1;
+        app.request_delete(false);
+        app.handle_confirm_key(k(KeyCode::Char('y')));
+        assert!(app.confirm.is_none());
+        assert!(app.status.starts_with("deleted "));
+    }
+
+    #[test]
+    fn handle_confirm_key_n_shortcut_cancels() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 1;
+        app.request_delete(false);
+        app.handle_confirm_key(k(KeyCode::Char('n')));
+        assert!(app.confirm.is_none());
+        assert_eq!(app.status, "cancelled");
+    }
 }

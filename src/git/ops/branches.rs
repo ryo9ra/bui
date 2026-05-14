@@ -24,8 +24,12 @@ pub fn list_local() -> Result<Vec<Branch>> {
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
+    Ok(parse_for_each_ref(&String::from_utf8_lossy(&out.stdout)))
+}
+
+pub(crate) fn parse_for_each_ref(stdout: &str) -> Vec<Branch> {
     let mut branches = Vec::new();
-    for line in String::from_utf8_lossy(&out.stdout).lines() {
+    for line in stdout.lines() {
         if line.is_empty() {
             continue;
         }
@@ -41,7 +45,7 @@ pub fn list_local() -> Result<Vec<Branch>> {
             subject: parts[4].to_string(),
         });
     }
-    Ok(branches)
+    branches
 }
 
 #[allow(dead_code)]
@@ -100,4 +104,62 @@ pub fn rename(old: &str, new: &str) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_current_branch_marker() {
+        let line = "*\u{1f}main\u{1f}abc1234\u{1f}2 days ago\u{1f}fix oauth\n";
+        let bs = parse_for_each_ref(line);
+        assert_eq!(bs.len(), 1);
+        assert!(bs[0].is_current);
+        assert_eq!(bs[0].name, "main");
+        assert_eq!(bs[0].short_sha, "abc1234");
+        assert_eq!(bs[0].rel_date, "2 days ago");
+        assert_eq!(bs[0].subject, "fix oauth");
+    }
+
+    #[test]
+    fn parses_non_current_branch() {
+        let line = " \u{1f}feature/foo\u{1f}def5678\u{1f}1 hour ago\u{1f}wip\n";
+        let bs = parse_for_each_ref(line);
+        assert_eq!(bs.len(), 1);
+        assert!(!bs[0].is_current);
+        assert_eq!(bs[0].name, "feature/foo");
+    }
+
+    #[test]
+    fn parses_multiple_lines_in_order() {
+        let stdout = "*\u{1f}main\u{1f}aaa\u{1f}2d\u{1f}m\n \u{1f}foo\u{1f}bbb\u{1f}1h\u{1f}f\n";
+        let bs = parse_for_each_ref(stdout);
+        assert_eq!(bs.len(), 2);
+        assert_eq!(bs[0].name, "main");
+        assert_eq!(bs[1].name, "foo");
+    }
+
+    #[test]
+    fn skips_blank_and_malformed_lines() {
+        // 4-field line is malformed; blank line is skipped.
+        let stdout = "*\u{1f}main\u{1f}aaa\u{1f}2d\u{1f}m\n\n \u{1f}foo\u{1f}bbb\u{1f}\n";
+        let bs = parse_for_each_ref(stdout);
+        assert_eq!(bs.len(), 1);
+        assert_eq!(bs[0].name, "main");
+    }
+
+    #[test]
+    fn subject_can_contain_the_field_separator() {
+        // splitn(5, …) means the last field captures any extra separators.
+        let line = "*\u{1f}main\u{1f}abc\u{1f}2d\u{1f}has\u{1f}separator\n";
+        let bs = parse_for_each_ref(line);
+        assert_eq!(bs.len(), 1);
+        assert_eq!(bs[0].subject, "has\u{1f}separator");
+    }
+
+    #[test]
+    fn empty_input_returns_empty() {
+        assert!(parse_for_each_ref("").is_empty());
+    }
 }
