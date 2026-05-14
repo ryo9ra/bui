@@ -10,9 +10,12 @@ and `docs/spec.md` for the full functional spec and roadmap.
 
 ## Status
 
-**Pre-v0.1, scaffolding only.** The Rust source does not yet implement the
-spec. When asked to add a feature, cross-reference `docs/spec.md` first —
-if it's not in v0.1 scope, confirm before implementing.
+**v0.1 features wired, untested.** All 14 features in `docs/spec.md` § 4.1
+have keybindings and behaviour. No automated tests yet — pure-logic tests
+(filter, selection clamp, parser) should land before a v0.1.0 release.
+When asked to add a feature, cross-reference `docs/spec.md` first — if it
+belongs to v0.2 / v0.3 / future, confirm with the user before
+implementing.
 
 ## Commands
 

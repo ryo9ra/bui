@@ -9,10 +9,10 @@ staging, committing, merging, and rebasing are deliberately out of scope.
 
 ## Status
 
-Pre-v0.1, under active development. Not yet published. See
+v0.1 feature-complete; not yet published to crates.io. See
 [`docs/spec.md`](docs/spec.md) for the formal scope and roadmap.
 
-## v0.1 features (planned)
+## v0.1 features
 
 - Local branch list with the latest commit on each row
 - Move with `j`/`k`/arrows; jump with `g`/`G`
