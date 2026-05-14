@@ -34,6 +34,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.layout.statusbar {
         statusbar::draw(f, app, rects.statusbar);
     }
+    if let Some(input_state) = &app.input {
+        input::draw(f, area, input_state);
+    }
     if let Some(modal) = &app.modal {
         match modal {
             Modal::Help => help::draw(f, area),

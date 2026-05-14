@@ -16,6 +16,7 @@ pub struct App {
     pub status: String,
     pub active_tab: Tab,
     pub modal: Option<Modal>,
+    pub input: Option<InputState>,
     pub layout: LayoutSpec,
     pub should_quit: bool,
     pub dirty: bool,
@@ -32,6 +33,26 @@ pub enum Modal {
     Help,
 }
 
+pub struct InputState {
+    pub prompt: &'static str,
+    pub value: String,
+    pub mode: InputMode,
+}
+
+pub enum InputMode {
+    CreateBranch,
+}
+
+impl InputState {
+    pub fn create_branch() -> Self {
+        Self {
+            prompt: "Create branch",
+            value: String::new(),
+            mode: InputMode::CreateBranch,
+        }
+    }
+}
+
 impl App {
     pub fn new(repo: Box<dyn Repo>) -> Self {
         Self {
@@ -41,6 +62,7 @@ impl App {
             status: "ready".to_string(),
             active_tab: Tab::Local,
             modal: None,
+            input: None,
             layout: LayoutSpec::v0_1_default(),
             should_quit: false,
             dirty: true,
@@ -102,6 +124,10 @@ impl App {
             self.handle_modal_key(key);
             return;
         }
+        if self.input.is_some() {
+            self.handle_input_key(key);
+            return;
+        }
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Char('?') => self.modal = Some(Modal::Help),
@@ -115,6 +141,9 @@ impl App {
             KeyCode::BackTab => self.cycle_tab(false),
             KeyCode::Char('R') => self.refresh_keeping_cursor(),
             KeyCode::Enter if self.active_tab == Tab::Local => self.checkout_selected(),
+            KeyCode::Char('c') if self.active_tab == Tab::Local => {
+                self.input = Some(InputState::create_branch());
+            }
             _ => {}
         }
         self.dirty = true;
@@ -126,6 +155,49 @@ impl App {
             _ => {}
         }
         self.dirty = true;
+    }
+
+    fn handle_input_key(&mut self, key: KeyEvent) {
+        let Some(input) = self.input.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.input = None;
+                self.status = "cancelled".to_string();
+            }
+            KeyCode::Enter => self.submit_input(),
+            KeyCode::Backspace => {
+                input.value.pop();
+            }
+            KeyCode::Char(c) => input.value.push(c),
+            _ => {}
+        }
+        self.dirty = true;
+    }
+
+    fn submit_input(&mut self) {
+        let Some(input) = self.input.take() else {
+            return;
+        };
+        let value = input.value.trim().to_string();
+        if value.is_empty() {
+            self.status = "input cancelled (empty)".to_string();
+            return;
+        }
+        match input.mode {
+            InputMode::CreateBranch => self.do_create_branch(&value),
+        }
+    }
+
+    fn do_create_branch(&mut self, name: &str) {
+        match self.repo.create_branch(name, None) {
+            Ok(()) => {
+                self.refresh(Some(name));
+                self.status = format!("created {name}");
+            }
+            Err(e) => self.status = format!("error: {e}"),
+        }
     }
 
     pub fn on_tick(&mut self) {

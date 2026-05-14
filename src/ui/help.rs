@@ -17,13 +17,14 @@ j / ↓        move down
 k / ↑        move up
 g / G        jump to top / bottom
 Enter        checkout selected branch
+c            create new branch from HEAD
 Tab/BackTab  switch tab
 R            refresh
 ?            toggle this help
 q            quit
-Esc          close modal
+Esc          close modal / cancel input
 
-create / rename / delete / search are not yet wired.
+rename / delete / search are not yet wired.
 See docs/spec.md for the planned key map.
 ";
     f.render_widget(Paragraph::new(text).block(block), popup);
