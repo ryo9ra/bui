@@ -31,7 +31,8 @@ Esc          close modal / cancel input / clear filter
 In search mode: type to filter (case-insensitive substring),
 ↑/↓ navigate, Enter confirm (keep filter), Esc clear & exit.
 
-In confirm dialog: y/Y accept, n/N or Esc cancel.
+In confirm dialog: ←/→ or Tab to select Yes/No, Enter to confirm,
+y/Y direct accept, n/N or Esc cancel. Default focus is No.
 
 See docs/spec.md for the planned key map.
 ";

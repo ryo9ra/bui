@@ -69,6 +69,13 @@ impl InputState {
 pub struct ConfirmState {
     pub prompt: String,
     pub action: ConfirmAction,
+    pub focus: ConfirmChoice,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum ConfirmChoice {
+    Yes,
+    No,
 }
 
 pub enum ConfirmAction {
@@ -227,23 +234,43 @@ impl App {
         self.confirm = Some(ConfirmState {
             prompt,
             action: ConfirmAction::DeleteBranch { name, force },
+            focus: ConfirmChoice::No,
         });
     }
 
     fn handle_confirm_key(&mut self, key: KeyEvent) {
+        let Some(state) = self.confirm.as_mut() else {
+            return;
+        };
         match key.code {
-            KeyCode::Char('y') | KeyCode::Char('Y') => {
-                if let Some(state) = self.confirm.take() {
-                    self.execute_confirm(state.action);
-                }
+            KeyCode::Char('y') | KeyCode::Char('Y') => self.accept_confirm(),
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => self.cancel_confirm(),
+            KeyCode::Left | KeyCode::Char('h') => state.focus = ConfirmChoice::Yes,
+            KeyCode::Right | KeyCode::Char('l') => state.focus = ConfirmChoice::No,
+            KeyCode::Tab | KeyCode::BackTab => {
+                state.focus = match state.focus {
+                    ConfirmChoice::Yes => ConfirmChoice::No,
+                    ConfirmChoice::No => ConfirmChoice::Yes,
+                };
             }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                self.confirm = None;
-                self.status = "cancelled".to_string();
-            }
+            KeyCode::Enter => match state.focus {
+                ConfirmChoice::Yes => self.accept_confirm(),
+                ConfirmChoice::No => self.cancel_confirm(),
+            },
             _ => {}
         }
         self.dirty = true;
+    }
+
+    fn accept_confirm(&mut self) {
+        if let Some(state) = self.confirm.take() {
+            self.execute_confirm(state.action);
+        }
+    }
+
+    fn cancel_confirm(&mut self) {
+        self.confirm = None;
+        self.status = "cancelled".to_string();
     }
 
     fn execute_confirm(&mut self, action: ConfirmAction) {

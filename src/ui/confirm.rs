@@ -1,33 +1,55 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use crate::app::ConfirmState;
+use crate::app::{ConfirmChoice, ConfirmState};
 
 pub fn draw(f: &mut Frame, area: Rect, confirm: &ConfirmState) {
-    let popup = centered_rect(60, 5, area);
+    let popup = centered_rect(64, 8, area);
     f.render_widget(Clear, popup);
     let block = Block::default()
         .title(" Confirm ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow));
+
+    let yes_style = button_style(Color::Green, confirm.focus == ConfirmChoice::Yes);
+    let no_style = button_style(Color::Red, confirm.focus == ConfirmChoice::No);
+
     let body = vec![
         Line::from(""),
-        Line::from(Span::raw(confirm.prompt.clone())),
+        Line::from(Span::raw(confirm.prompt.clone())).alignment(Alignment::Center),
         Line::from(""),
         Line::from(vec![
-            Span::raw("  "),
-            Span::styled("[y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::raw("es   "),
-            Span::styled("[n]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::raw("o"),
-        ]),
+            Span::styled("  Yes  ", yes_style),
+            Span::raw("     "),
+            Span::styled("  No  ", no_style),
+        ])
+        .alignment(Alignment::Center),
+        Line::from(""),
+        Line::from(Span::styled(
+            "←/→ select  ·  Enter confirm  ·  y/n shortcut  ·  Esc cancel",
+            Style::default().fg(Color::DarkGray),
+        ))
+        .alignment(Alignment::Center),
     ];
     f.render_widget(Paragraph::new(body).block(block), popup);
+}
+
+fn button_style(color: Color, focused: bool) -> Style {
+    if focused {
+        Style::default()
+            .fg(Color::Black)
+            .bg(color)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(color)
+            .add_modifier(Modifier::BOLD | Modifier::DIM)
+    }
 }
 
 fn centered_rect(pw: u16, height: u16, area: Rect) -> Rect {
