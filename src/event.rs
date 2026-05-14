@@ -8,20 +8,17 @@ use crossterm::event::{self as cevent, KeyEvent, KeyEventKind};
 pub enum Event {
     Input(KeyEvent),
     Tick,
-    #[allow(dead_code)]
     TaskResult(TaskId, std::result::Result<Outcome, String>),
 }
 
 pub type TaskId = u64;
 
-#[allow(dead_code)]
 pub enum Outcome {
-    BranchesRefreshed,
+    Fetched,
 }
 
 pub struct EventChannel {
     rx: Receiver<Event>,
-    #[allow(dead_code)]
     pub tx: Sender<Event>,
 }
 

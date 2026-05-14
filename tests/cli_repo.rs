@@ -215,6 +215,49 @@ fn lists_remote_branches_empty_for_repo_without_remotes() {
 }
 
 #[test]
+fn fetch_picks_up_new_upstream_branches() {
+    let upstream = init_repo();
+    let clone_dir = tempfile::tempdir().expect("create clone tempdir");
+    let out = Command::new("git")
+        .args([
+            "clone",
+            "-q",
+            upstream.path().to_str().unwrap(),
+            clone_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn git clone");
+    assert!(
+        out.status.success(),
+        "git clone failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let repo = CliRepo::at(clone_dir.path().to_path_buf());
+
+    // A branch added after clone shouldn't be in the local remote-tracking
+    // view yet.
+    run_git(upstream.path(), &["branch", "newly-added"]);
+    let before: Vec<_> = repo
+        .list_remote_branches()
+        .unwrap()
+        .into_iter()
+        .map(|b| b.name)
+        .collect();
+    assert!(!before.contains(&"newly-added".to_string()));
+
+    // After fetch, it should appear.
+    repo.fetch(None).unwrap();
+    let after: Vec<_> = repo
+        .list_remote_branches()
+        .unwrap()
+        .into_iter()
+        .map(|b| b.name)
+        .collect();
+    assert!(after.contains(&"newly-added".to_string()));
+}
+
+#[test]
 fn create_from_explicit_start_point() {
     let dir = init_repo();
     let repo = open(&dir);

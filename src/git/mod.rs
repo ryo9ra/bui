@@ -13,4 +13,5 @@ pub trait Repo: Send + Sync {
     fn create_branch(&self, name: &str, from: Option<&str>) -> Result<()>;
     fn delete_branch(&self, name: &str, force: bool) -> Result<()>;
     fn rename_branch(&self, old: &str, new: &str) -> Result<()>;
+    fn fetch(&self, remote: Option<&str>) -> Result<()>;
 }

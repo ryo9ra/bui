@@ -1,16 +1,23 @@
 use std::io;
+use std::sync::Arc;
+use std::sync::mpsc::Sender;
 
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use crate::event::{Event, EventChannel};
+use crate::event::{Event, EventChannel, Outcome, TaskId};
 use crate::git::{Branch, RemoteBranch, Repo};
+use crate::task::Action;
 use crate::ui;
 use crate::ui::layout::LayoutSpec;
 
 pub struct App {
-    pub repo: Box<dyn Repo>,
+    pub repo: Arc<dyn Repo>,
+    pub task_tx: Sender<(TaskId, Action)>,
+    pub next_task_id: TaskId,
+    pub pending_task: Option<PendingTask>,
+    pub spinner_frame: usize,
     pub local_branches: Vec<Branch>,
     pub remote_branches: Vec<RemoteBranch>,
     /// Index into `visible_branches()` (Local tab).
@@ -27,6 +34,11 @@ pub struct App {
     pub layout: LayoutSpec,
     pub should_quit: bool,
     pub dirty: bool,
+}
+
+pub struct PendingTask {
+    pub id: TaskId,
+    pub desc: String,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -86,9 +98,13 @@ pub enum ConfirmAction {
 }
 
 impl App {
-    pub fn new(repo: Box<dyn Repo>) -> Self {
+    pub fn new(repo: Arc<dyn Repo>, task_tx: Sender<(TaskId, Action)>) -> Self {
         Self {
             repo,
+            task_tx,
+            next_task_id: 1,
+            pending_task: None,
+            spinner_frame: 0,
             local_branches: Vec::new(),
             remote_branches: Vec::new(),
             selected: 0,
@@ -104,6 +120,34 @@ impl App {
             should_quit: false,
             dirty: true,
         }
+    }
+
+    fn dispatch(&mut self, action: Action, desc: impl Into<String>) {
+        let id = self.next_task_id;
+        self.next_task_id += 1;
+        let desc = desc.into();
+        if self.task_tx.send((id, action)).is_err() {
+            self.status = "worker channel closed".to_string();
+            return;
+        }
+        self.status = format!("{desc}...");
+        self.pending_task = Some(PendingTask { id, desc });
+    }
+
+    pub fn on_task_result(&mut self, id: TaskId, result: Result<Outcome, String>) {
+        // Ignore stray results from a no-longer-pending task.
+        if !matches!(&self.pending_task, Some(p) if p.id == id) {
+            return;
+        }
+        self.pending_task = None;
+        match result {
+            Ok(Outcome::Fetched) => {
+                self.refresh(None);
+                self.status = "fetched".to_string();
+            }
+            Err(e) => self.status = format!("error: {e}"),
+        }
+        self.dirty = true;
     }
 
     pub fn visible_branches(&self) -> Vec<&Branch> {
@@ -274,6 +318,9 @@ impl App {
             KeyCode::Esc if !self.filter.is_empty() => self.clear_filter(),
             KeyCode::Char('d') if self.active_tab == Tab::Local => self.request_delete(false),
             KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
+            KeyCode::Char('f') if self.pending_task.is_none() => {
+                self.dispatch(Action::Fetch { remote: None }, "fetching");
+            }
             _ => {}
         }
         self.dirty = true;
@@ -469,7 +516,10 @@ impl App {
     }
 
     pub fn on_tick(&mut self) {
-        // animations / spinner / time-driven redraws will live here.
+        if self.pending_task.is_some() {
+            self.spinner_frame = self.spinner_frame.wrapping_add(1);
+            self.dirty = true;
+        }
     }
 
     fn move_down(&mut self) {
@@ -516,7 +566,7 @@ pub fn run_loop(
         match events.recv()? {
             Event::Input(key) => app.on_key(key),
             Event::Tick => app.on_tick(),
-            Event::TaskResult(_, _) => {}
+            Event::TaskResult(id, result) => app.on_task_result(id, result),
         }
         if app.should_quit {
             break;
@@ -550,6 +600,9 @@ mod tests {
         fn rename_branch(&self, _: &str, _: &str) -> anyhow::Result<()> {
             Ok(())
         }
+        fn fetch(&self, _: Option<&str>) -> anyhow::Result<()> {
+            Ok(())
+        }
     }
 
     fn br(name: &str, current: bool) -> Branch {
@@ -563,7 +616,12 @@ mod tests {
     }
 
     fn app_with(branches: Vec<Branch>) -> App {
-        let mut a = App::new(Box::new(NoopRepo));
+        let (tx, rx) = std::sync::mpsc::channel();
+        // Leak the receiver so `dispatch()` calls don't fail with a closed
+        // channel; tests that inspect dispatched actions build their own
+        // channel directly.
+        std::mem::forget(rx);
+        let mut a = App::new(Arc::new(NoopRepo), tx);
         a.local_branches = branches;
         a
     }
@@ -811,5 +869,87 @@ mod tests {
         app.handle_confirm_key(k(KeyCode::Char('n')));
         assert!(app.confirm.is_none());
         assert_eq!(app.status, "cancelled");
+    }
+
+    #[test]
+    fn pressing_f_dispatches_fetch_with_monotonic_id() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut app = App::new(Arc::new(NoopRepo), tx);
+        app.local_branches = vec![br("main", true)];
+        app.on_key(k(KeyCode::Char('f')));
+
+        let pending = app.pending_task.as_ref().expect("pending should be set");
+        assert_eq!(pending.id, 1);
+        assert_eq!(pending.desc, "fetching");
+
+        let (id, action) = rx.try_recv().expect("dispatched action");
+        assert_eq!(id, 1);
+        assert!(matches!(action, Action::Fetch { remote: None }));
+    }
+
+    #[test]
+    fn pressing_f_is_ignored_when_already_pending() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut app = App::new(Arc::new(NoopRepo), tx);
+        app.local_branches = vec![br("main", true)];
+        app.on_key(k(KeyCode::Char('f')));
+        let first_id = app.pending_task.as_ref().unwrap().id;
+        app.on_key(k(KeyCode::Char('f')));
+        assert_eq!(app.pending_task.as_ref().unwrap().id, first_id);
+        // Only one dispatch should have reached the worker channel.
+        let (_, _) = rx.try_recv().unwrap();
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn on_task_result_clears_pending_on_success() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.pending_task = Some(PendingTask {
+            id: 7,
+            desc: "fetching".to_string(),
+        });
+        app.on_task_result(7, Ok(Outcome::Fetched));
+        assert!(app.pending_task.is_none());
+        assert_eq!(app.status, "fetched");
+    }
+
+    #[test]
+    fn on_task_result_ignores_stale_ids() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.pending_task = Some(PendingTask {
+            id: 7,
+            desc: "fetching".to_string(),
+        });
+        app.on_task_result(99, Ok(Outcome::Fetched));
+        assert!(app.pending_task.is_some());
+    }
+
+    #[test]
+    fn on_task_result_error_clears_pending_and_reports() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.pending_task = Some(PendingTask {
+            id: 7,
+            desc: "fetching".to_string(),
+        });
+        app.on_task_result(7, Err("network down".to_string()));
+        assert!(app.pending_task.is_none());
+        assert!(app.status.contains("error"));
+        assert!(app.status.contains("network down"));
+    }
+
+    #[test]
+    fn on_tick_advances_spinner_only_when_pending() {
+        let mut app = app_with(vec![br("main", true)]);
+        let idle_before = app.spinner_frame;
+        app.on_tick();
+        assert_eq!(app.spinner_frame, idle_before);
+
+        app.pending_task = Some(PendingTask {
+            id: 1,
+            desc: "fetching".to_string(),
+        });
+        let pending_before = app.spinner_frame;
+        app.on_tick();
+        assert_eq!(app.spinner_frame, pending_before.wrapping_add(1));
     }
 }

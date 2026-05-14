@@ -1,12 +1,14 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
 
 use crate::app::App;
+
+const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     let line = if app.search_active {
@@ -15,6 +17,17 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             Span::styled("/", Style::default().fg(Color::Cyan)),
             Span::raw(app.filter.clone()),
             Span::styled("_", Style::default().fg(Color::Cyan)),
+        ])
+    } else if let Some(pending) = &app.pending_task {
+        let frame = SPINNER[app.spinner_frame % SPINNER.len()];
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled(
+                frame.to_string(),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(pending.desc.clone(), Style::default().fg(Color::Yellow)),
         ])
     } else {
         Line::from(vec![
