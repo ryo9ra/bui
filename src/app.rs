@@ -95,7 +95,7 @@ impl App {
             modal: None,
             input: None,
             confirm: None,
-            layout: LayoutSpec::v0_1_default(),
+            layout: LayoutSpec::default_layout(),
             should_quit: false,
             dirty: true,
         }
@@ -112,10 +112,12 @@ impl App {
             .collect()
     }
 
+    pub fn selected_branch(&self) -> Option<&Branch> {
+        self.visible_branches().get(self.selected).copied()
+    }
+
     fn selected_name(&self) -> Option<String> {
-        self.visible_branches()
-            .get(self.selected)
-            .map(|b| b.name.clone())
+        self.selected_branch().map(|b| b.name.clone())
     }
 
     fn selected_is_current(&self) -> bool {

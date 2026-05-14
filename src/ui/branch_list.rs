@@ -44,7 +44,6 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
                 marker.to_string(),
                 b.name.clone(),
                 b.short_sha.clone(),
-                b.subject.clone(),
                 b.rel_date.clone(),
             ])
             .style(style)
@@ -55,7 +54,6 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
         Constraint::Length(1),
         Constraint::Min(20),
         Constraint::Length(8),
-        Constraint::Min(20),
         Constraint::Length(14),
     ];
     let table = Table::new(rows, widths).block(Block::default().borders(Borders::NONE));

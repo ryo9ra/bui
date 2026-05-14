@@ -11,7 +11,7 @@ pub mod tabs;
 use ratatui::Frame;
 
 use crate::app::{App, Modal};
-use crate::ui::layout::MainSpec;
+use crate::ui::layout::{MainSpec, RightPane};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -22,10 +22,13 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     match &app.layout.main {
         MainSpec::BranchList => branch_list::draw(f, app, rects.main),
-        MainSpec::Split(_, _) => {
-            if let Some((left, _right)) = rects.main_split {
+        MainSpec::Split(_, right) => {
+            if let Some((left, right_area)) = rects.main_split {
                 branch_list::draw(f, app, left);
-                // right pane (Detail/Diff) lands in v0.2 / v0.3.
+                match right {
+                    RightPane::Detail => detail::draw(f, app, right_area),
+                    RightPane::Diff => diff::draw(f, app, right_area),
+                }
             } else {
                 branch_list::draw(f, app, rects.main);
             }
