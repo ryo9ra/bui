@@ -48,4 +48,10 @@ impl Repo for CliRepo {
     fn fetch(&self, remote: Option<&str>) -> Result<()> {
         ops::remote::fetch(&self.workdir, remote)
     }
+    fn pull(&self) -> Result<()> {
+        ops::remote::pull(&self.workdir)
+    }
+    fn push(&self) -> Result<()> {
+        ops::remote::push(&self.workdir)
+    }
 }

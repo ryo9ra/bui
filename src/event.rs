@@ -15,6 +15,8 @@ pub type TaskId = u64;
 
 pub enum Outcome {
     Fetched,
+    Pulled,
+    Pushed,
 }
 
 pub struct EventChannel {

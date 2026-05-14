@@ -15,6 +15,8 @@ use crate::git::Repo;
 
 pub enum Action {
     Fetch { remote: Option<String> },
+    Pull,
+    Push,
 }
 
 pub fn spawn(
@@ -39,5 +41,7 @@ fn execute(repo: &dyn Repo, action: Action) -> Result<Outcome, String> {
             .fetch(remote.as_deref())
             .map(|_| Outcome::Fetched)
             .map_err(|e| e.to_string()),
+        Action::Pull => repo.pull().map(|_| Outcome::Pulled).map_err(|e| e.to_string()),
+        Action::Push => repo.push().map(|_| Outcome::Pushed).map_err(|e| e.to_string()),
     }
 }

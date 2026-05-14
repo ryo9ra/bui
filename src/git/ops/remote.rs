@@ -23,3 +23,31 @@ pub fn fetch(workdir: &Path, remote: Option<&str>) -> Result<()> {
     }
     Ok(())
 }
+
+pub fn pull(workdir: &Path) -> Result<()> {
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args(["pull"])
+        .output()?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "git pull failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+pub fn push(workdir: &Path) -> Result<()> {
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args(["push"])
+        .output()?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "git push failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}

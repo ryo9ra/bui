@@ -22,7 +22,9 @@ r            (Local) rename selected branch
 d            (Local) delete selected branch (confirm)
 D            (Local) force-delete selected branch (confirm)
 /            incremental search (filter by name)
-f            fetch all remotes (async, with spinner)
+f            fetch all remotes (async)
+p            pull current branch (async)
+P            push current branch (async)
 Tab/BackTab  switch tab (Local · Remote · Worktree)
 R            refresh local + remote
 ?            toggle this help

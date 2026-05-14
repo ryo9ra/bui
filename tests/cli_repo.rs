@@ -214,6 +214,91 @@ fn lists_remote_branches_empty_for_repo_without_remotes() {
     assert!(remotes.is_empty());
 }
 
+/// Set up a bare upstream + a working clone with an initial commit pushed
+/// up. Returns (work, bare-upstream). Pull / push tests use this so the
+/// remote actually accepts pushes.
+fn init_work_and_bare_upstream() -> (TempDir, TempDir) {
+    let upstream = tempfile::tempdir().expect("upstream tempdir");
+    run_git(upstream.path(), &["init", "--bare", "-b", "main", "-q"]);
+
+    let work = tempfile::tempdir().expect("work tempdir");
+    let out = Command::new("git")
+        .args([
+            "clone",
+            "-q",
+            upstream.path().to_str().unwrap(),
+            work.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn git clone");
+    assert!(
+        out.status.success(),
+        "git clone failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    run_git(work.path(), &["config", "user.name", "bui-test"]);
+    run_git(work.path(), &["config", "user.email", "bui-test@example.com"]);
+    run_git(work.path(), &["config", "commit.gpgsign", "false"]);
+    std::fs::write(work.path().join("README"), "test\n").unwrap();
+    run_git(work.path(), &["add", "."]);
+    run_git(work.path(), &["commit", "-m", "initial", "-q"]);
+    run_git(work.path(), &["push", "-u", "origin", "main", "-q"]);
+    (work, upstream)
+}
+
+fn rev_parse(workdir: &Path, refname: &str) -> String {
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args(["rev-parse", refname])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
+#[test]
+fn push_propagates_local_commits_to_bare_upstream() {
+    let (work, upstream) = init_work_and_bare_upstream();
+    let repo = CliRepo::at(work.path().to_path_buf());
+
+    commit_on(work.path(), "extra", "more work");
+    let head_after_local_commit = rev_parse(work.path(), "HEAD");
+
+    repo.push().unwrap();
+    let upstream_head = rev_parse(upstream.path(), "main");
+    assert_eq!(upstream_head, head_after_local_commit);
+}
+
+#[test]
+fn pull_brings_in_commits_pushed_elsewhere() {
+    let (work, upstream) = init_work_and_bare_upstream();
+
+    // A second worker commits and pushes through the bare upstream.
+    let other = tempfile::tempdir().expect("other tempdir");
+    let out = Command::new("git")
+        .args([
+            "clone",
+            "-q",
+            upstream.path().to_str().unwrap(),
+            other.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    run_git(other.path(), &["config", "user.name", "bui-test"]);
+    run_git(other.path(), &["config", "user.email", "bui-test@example.com"]);
+    run_git(other.path(), &["config", "commit.gpgsign", "false"]);
+    commit_on(other.path(), "outside", "from elsewhere");
+    run_git(other.path(), &["push", "-q"]);
+
+    let work_head_before = rev_parse(work.path(), "HEAD");
+    let repo = CliRepo::at(work.path().to_path_buf());
+    repo.pull().unwrap();
+    let work_head_after = rev_parse(work.path(), "HEAD");
+    assert_ne!(work_head_before, work_head_after);
+    assert_eq!(work_head_after, rev_parse(upstream.path(), "main"));
+}
+
 #[test]
 fn fetch_picks_up_new_upstream_branches() {
     let upstream = init_repo();

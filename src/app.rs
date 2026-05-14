@@ -145,6 +145,14 @@ impl App {
                 self.refresh(None);
                 self.status = "fetched".to_string();
             }
+            Ok(Outcome::Pulled) => {
+                self.refresh(None);
+                self.status = "pulled".to_string();
+            }
+            Ok(Outcome::Pushed) => {
+                self.refresh(None);
+                self.status = "pushed".to_string();
+            }
             Err(e) => self.status = format!("error: {e}"),
         }
         self.dirty = true;
@@ -320,6 +328,12 @@ impl App {
             KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
             KeyCode::Char('f') if self.pending_task.is_none() => {
                 self.dispatch(Action::Fetch { remote: None }, "fetching");
+            }
+            KeyCode::Char('p') if self.pending_task.is_none() => {
+                self.dispatch(Action::Pull, "pulling");
+            }
+            KeyCode::Char('P') if self.pending_task.is_none() => {
+                self.dispatch(Action::Push, "pushing");
             }
             _ => {}
         }
@@ -601,6 +615,12 @@ mod tests {
             Ok(())
         }
         fn fetch(&self, _: Option<&str>) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn pull(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn push(&self) -> anyhow::Result<()> {
             Ok(())
         }
     }
