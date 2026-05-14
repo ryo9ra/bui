@@ -12,7 +12,10 @@ use crate::ui::layout::LayoutSpec;
 pub struct App {
     pub repo: Box<dyn Repo>,
     pub local_branches: Vec<Branch>,
+    /// Index into `visible_branches()`, not `local_branches`.
     pub selected: usize,
+    pub filter: String,
+    pub search_active: bool,
     pub status: String,
     pub active_tab: Tab,
     pub modal: Option<Modal>,
@@ -59,6 +62,8 @@ impl App {
             repo,
             local_branches: Vec::new(),
             selected: 0,
+            filter: String::new(),
+            search_active: false,
             status: "ready".to_string(),
             active_tab: Tab::Local,
             modal: None,
@@ -67,6 +72,29 @@ impl App {
             should_quit: false,
             dirty: true,
         }
+    }
+
+    pub fn visible_branches(&self) -> Vec<&Branch> {
+        if self.filter.is_empty() {
+            return self.local_branches.iter().collect();
+        }
+        let needle = self.filter.to_lowercase();
+        self.local_branches
+            .iter()
+            .filter(|b| b.name.to_lowercase().contains(&needle))
+            .collect()
+    }
+
+    fn selected_name(&self) -> Option<String> {
+        self.visible_branches()
+            .get(self.selected)
+            .map(|b| b.name.clone())
+    }
+
+    fn selected_is_current(&self) -> bool {
+        self.visible_branches()
+            .get(self.selected)
+            .is_some_and(|b| b.is_current)
     }
 
     pub fn refresh(&mut self, prefer: Option<&str>) {
@@ -82,34 +110,31 @@ impl App {
     }
 
     fn refresh_keeping_cursor(&mut self) {
-        let prefer = self
-            .local_branches
-            .get(self.selected)
-            .map(|b| b.name.clone());
+        let prefer = self.selected_name();
         self.refresh(prefer.as_deref());
     }
 
     fn fix_selection(&mut self, prefer: Option<&str>) {
+        let visible = self.visible_branches();
         if let Some(name) = prefer
-            && let Some(i) = self.local_branches.iter().position(|b| b.name == name)
+            && let Some(i) = visible.iter().position(|b| b.name == name)
         {
             self.selected = i;
             return;
         }
-        if self.selected >= self.local_branches.len() {
-            self.selected = self.local_branches.len().saturating_sub(1);
+        if self.selected >= visible.len() {
+            self.selected = visible.len().saturating_sub(1);
         }
     }
 
     fn checkout_selected(&mut self) {
-        let Some(branch) = self.local_branches.get(self.selected) else {
+        let Some(name) = self.selected_name() else {
             return;
         };
-        if branch.is_current {
-            self.status = format!("already on {}", branch.name);
+        if self.selected_is_current() {
+            self.status = format!("already on {name}");
             return;
         }
-        let name = branch.name.clone();
         match self.repo.checkout(&name) {
             Ok(()) => {
                 self.refresh(Some(&name));
@@ -128,6 +153,10 @@ impl App {
             self.handle_input_key(key);
             return;
         }
+        if self.search_active {
+            self.handle_search_key(key);
+            return;
+        }
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Char('?') => self.modal = Some(Modal::Help),
@@ -135,7 +164,7 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up => self.move_up(),
             KeyCode::Char('g') | KeyCode::Home => self.selected = 0,
             KeyCode::Char('G') | KeyCode::End => {
-                self.selected = self.local_branches.len().saturating_sub(1);
+                self.selected = self.visible_branches().len().saturating_sub(1);
             }
             KeyCode::Tab => self.cycle_tab(true),
             KeyCode::BackTab => self.cycle_tab(false),
@@ -143,6 +172,54 @@ impl App {
             KeyCode::Enter if self.active_tab == Tab::Local => self.checkout_selected(),
             KeyCode::Char('c') if self.active_tab == Tab::Local => {
                 self.input = Some(InputState::create_branch());
+            }
+            KeyCode::Char('/') if self.active_tab == Tab::Local => self.start_search(),
+            KeyCode::Esc if !self.filter.is_empty() => self.clear_filter(),
+            _ => {}
+        }
+        self.dirty = true;
+    }
+
+    fn start_search(&mut self) {
+        self.filter.clear();
+        self.search_active = true;
+        self.selected = 0;
+        self.status = "search".to_string();
+    }
+
+    fn clear_filter(&mut self) {
+        self.filter.clear();
+        self.selected = 0;
+        self.status = "filter cleared".to_string();
+    }
+
+    fn handle_search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.search_active = false;
+                self.filter.clear();
+                self.selected = 0;
+                self.status = "search cancelled".to_string();
+            }
+            KeyCode::Enter => {
+                self.search_active = false;
+                let total = self.local_branches.len();
+                let shown = self.visible_branches().len();
+                self.status = if self.filter.is_empty() {
+                    format!("{total} branches")
+                } else {
+                    format!("{shown}/{total} matching '{}'", self.filter)
+                };
+            }
+            KeyCode::Backspace => {
+                self.filter.pop();
+                self.selected = 0;
+            }
+            KeyCode::Up => self.move_up(),
+            KeyCode::Down => self.move_down(),
+            KeyCode::Char(c) => {
+                self.filter.push(c);
+                self.selected = 0;
             }
             _ => {}
         }
@@ -205,7 +282,7 @@ impl App {
     }
 
     fn move_down(&mut self) {
-        if self.selected + 1 < self.local_branches.len() {
+        if self.selected + 1 < self.visible_branches().len() {
             self.selected += 1;
         }
     }

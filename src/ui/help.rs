@@ -18,13 +18,17 @@ k / ↑        move up
 g / G        jump to top / bottom
 Enter        checkout selected branch
 c            create new branch from HEAD
+/            incremental search (filter by name)
 Tab/BackTab  switch tab
 R            refresh
 ?            toggle this help
 q            quit
-Esc          close modal / cancel input
+Esc          close modal / cancel input / clear filter
 
-rename / delete / search are not yet wired.
+In search mode: type to filter (case-insensitive substring),
+↑/↓ navigate, Enter confirm (keep filter), Esc clear & exit.
+
+rename / delete are not yet wired.
 See docs/spec.md for the planned key map.
 ";
     f.render_widget(Paragraph::new(text).block(block), popup);

@@ -20,8 +20,12 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
         draw_placeholder(f, area, "No local branches found.");
         return;
     }
-    let rows: Vec<Row> = app
-        .local_branches
+    let visible = app.visible_branches();
+    if visible.is_empty() {
+        draw_placeholder(f, area, "No matches.");
+        return;
+    }
+    let rows: Vec<Row> = visible
         .iter()
         .enumerate()
         .map(|(i, b)| {
