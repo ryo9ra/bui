@@ -10,7 +10,7 @@ use crate::app::{App, Tab};
 pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     match app.active_tab {
         Tab::Local => draw_local(f, app, area),
-        Tab::Remote => draw_placeholder(f, area, "Remote branches — coming in v0.2"),
+        Tab::Remote => draw_remote(f, app, area),
         Tab::Worktree => draw_placeholder(f, area, "Worktrees — coming in v0.3"),
     }
 }
@@ -43,6 +43,44 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
             Row::new(vec![
                 marker.to_string(),
                 b.name.clone(),
+                b.short_sha.clone(),
+                b.rel_date.clone(),
+            ])
+            .style(style)
+        })
+        .collect();
+
+    let widths = [
+        Constraint::Length(1),
+        Constraint::Min(20),
+        Constraint::Length(8),
+        Constraint::Length(14),
+    ];
+    let table = Table::new(rows, widths).block(Block::default().borders(Borders::NONE));
+    f.render_widget(table, area);
+}
+
+fn draw_remote(f: &mut Frame, app: &App, area: Rect) {
+    if app.remote_branches.is_empty() {
+        draw_placeholder(f, area, "No remote branches. Run `git fetch` (C1 coming).");
+        return;
+    }
+    let visible = app.visible_remote_branches();
+    if visible.is_empty() {
+        draw_placeholder(f, area, "No matches.");
+        return;
+    }
+    let rows: Vec<Row> = visible
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let mut style = Style::default().fg(Color::Cyan);
+            if i == app.selected_remote {
+                style = style.add_modifier(Modifier::REVERSED);
+            }
+            Row::new(vec![
+                " ".to_string(),
+                b.full_name.clone(),
                 b.short_sha.clone(),
                 b.rel_date.clone(),
             ])

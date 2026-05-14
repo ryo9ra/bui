@@ -5,15 +5,18 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::event::{Event, EventChannel};
-use crate::git::{Branch, Repo};
+use crate::git::{Branch, RemoteBranch, Repo};
 use crate::ui;
 use crate::ui::layout::LayoutSpec;
 
 pub struct App {
     pub repo: Box<dyn Repo>,
     pub local_branches: Vec<Branch>,
-    /// Index into `visible_branches()`, not `local_branches`.
+    pub remote_branches: Vec<RemoteBranch>,
+    /// Index into `visible_branches()` (Local tab).
     pub selected: usize,
+    /// Index into `visible_remote_branches()` (Remote tab).
+    pub selected_remote: usize,
     pub filter: String,
     pub search_active: bool,
     pub status: String,
@@ -87,7 +90,9 @@ impl App {
         Self {
             repo,
             local_branches: Vec::new(),
+            remote_branches: Vec::new(),
             selected: 0,
+            selected_remote: 0,
             filter: String::new(),
             search_active: false,
             status: "ready".to_string(),
@@ -112,8 +117,25 @@ impl App {
             .collect()
     }
 
+    pub fn visible_remote_branches(&self) -> Vec<&RemoteBranch> {
+        if self.filter.is_empty() {
+            return self.remote_branches.iter().collect();
+        }
+        let needle = self.filter.to_lowercase();
+        self.remote_branches
+            .iter()
+            .filter(|b| b.full_name.to_lowercase().contains(&needle))
+            .collect()
+    }
+
     pub fn selected_branch(&self) -> Option<&Branch> {
         self.visible_branches().get(self.selected).copied()
+    }
+
+    pub fn selected_remote_branch(&self) -> Option<&RemoteBranch> {
+        self.visible_remote_branches()
+            .get(self.selected_remote)
+            .copied()
     }
 
     fn selected_name(&self) -> Option<String> {
@@ -126,6 +148,30 @@ impl App {
             .is_some_and(|b| b.is_current)
     }
 
+    fn current_visible_count(&self) -> usize {
+        match self.active_tab {
+            Tab::Local => self.visible_branches().len(),
+            Tab::Remote => self.visible_remote_branches().len(),
+            Tab::Worktree => 0,
+        }
+    }
+
+    fn current_selected(&self) -> usize {
+        match self.active_tab {
+            Tab::Local => self.selected,
+            Tab::Remote => self.selected_remote,
+            Tab::Worktree => 0,
+        }
+    }
+
+    fn set_current_selected(&mut self, i: usize) {
+        match self.active_tab {
+            Tab::Local => self.selected = i,
+            Tab::Remote => self.selected_remote = i,
+            Tab::Worktree => {}
+        }
+    }
+
     pub fn refresh(&mut self, prefer: Option<&str>) {
         match self.repo.list_local_branches() {
             Ok(bs) => {
@@ -134,6 +180,18 @@ impl App {
                 self.fix_selection(prefer);
             }
             Err(e) => self.status = format!("error: {e}"),
+        }
+        // Remote refresh is best-effort: a missing or unreadable refs/remotes
+        // shouldn't clobber the local view's status. Errors leave the previous
+        // remote list intact.
+        if let Ok(bs) = self.repo.list_remote_branches() {
+            self.remote_branches = bs;
+            if self.selected_remote >= self.remote_branches.len() {
+                self.selected_remote = self
+                    .visible_remote_branches()
+                    .len()
+                    .saturating_sub(1);
+            }
         }
         self.dirty = true;
     }
@@ -195,9 +253,10 @@ impl App {
             KeyCode::Char('?') => self.modal = Some(Modal::Help),
             KeyCode::Char('j') | KeyCode::Down => self.move_down(),
             KeyCode::Char('k') | KeyCode::Up => self.move_up(),
-            KeyCode::Char('g') | KeyCode::Home => self.selected = 0,
+            KeyCode::Char('g') | KeyCode::Home => self.set_current_selected(0),
             KeyCode::Char('G') | KeyCode::End => {
-                self.selected = self.visible_branches().len().saturating_sub(1);
+                let count = self.current_visible_count();
+                self.set_current_selected(count.saturating_sub(1));
             }
             KeyCode::Tab => self.cycle_tab(true),
             KeyCode::BackTab => self.cycle_tab(false),
@@ -211,7 +270,7 @@ impl App {
                     self.input = Some(InputState::rename_branch(old));
                 }
             }
-            KeyCode::Char('/') if self.active_tab == Tab::Local => self.start_search(),
+            KeyCode::Char('/') if self.active_tab != Tab::Worktree => self.start_search(),
             KeyCode::Esc if !self.filter.is_empty() => self.clear_filter(),
             KeyCode::Char('d') if self.active_tab == Tab::Local => self.request_delete(false),
             KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
@@ -294,13 +353,13 @@ impl App {
     fn start_search(&mut self) {
         self.filter.clear();
         self.search_active = true;
-        self.selected = 0;
+        self.set_current_selected(0);
         self.status = "search".to_string();
     }
 
     fn clear_filter(&mut self) {
         self.filter.clear();
-        self.selected = 0;
+        self.set_current_selected(0);
         self.status = "filter cleared".to_string();
     }
 
@@ -309,13 +368,19 @@ impl App {
             KeyCode::Esc => {
                 self.search_active = false;
                 self.filter.clear();
-                self.selected = 0;
+                self.set_current_selected(0);
                 self.status = "search cancelled".to_string();
             }
             KeyCode::Enter => {
                 self.search_active = false;
-                let total = self.local_branches.len();
-                let shown = self.visible_branches().len();
+                let (shown, total) = match self.active_tab {
+                    Tab::Local => (self.visible_branches().len(), self.local_branches.len()),
+                    Tab::Remote => (
+                        self.visible_remote_branches().len(),
+                        self.remote_branches.len(),
+                    ),
+                    Tab::Worktree => (0, 0),
+                };
                 self.status = if self.filter.is_empty() {
                     format!("{total} branches")
                 } else {
@@ -324,13 +389,13 @@ impl App {
             }
             KeyCode::Backspace => {
                 self.filter.pop();
-                self.selected = 0;
+                self.set_current_selected(0);
             }
             KeyCode::Up => self.move_up(),
             KeyCode::Down => self.move_down(),
             KeyCode::Char(c) => {
                 self.filter.push(c);
-                self.selected = 0;
+                self.set_current_selected(0);
             }
             _ => {}
         }
@@ -408,14 +473,16 @@ impl App {
     }
 
     fn move_down(&mut self) {
-        if self.selected + 1 < self.visible_branches().len() {
-            self.selected += 1;
+        let cur = self.current_selected();
+        if cur + 1 < self.current_visible_count() {
+            self.set_current_selected(cur + 1);
         }
     }
 
     fn move_up(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
+        let cur = self.current_selected();
+        if cur > 0 {
+            self.set_current_selected(cur - 1);
         }
     }
 
@@ -466,6 +533,9 @@ mod tests {
     struct NoopRepo;
     impl Repo for NoopRepo {
         fn list_local_branches(&self) -> anyhow::Result<Vec<Branch>> {
+            Ok(vec![])
+        }
+        fn list_remote_branches(&self) -> anyhow::Result<Vec<RemoteBranch>> {
             Ok(vec![])
         }
         fn checkout(&self, _: &str) -> anyhow::Result<()> {

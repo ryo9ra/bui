@@ -167,6 +167,54 @@ fn list_returns_committerdate_descending() {
 }
 
 #[test]
+fn lists_remote_branches_after_clone() {
+    let upstream = init_repo();
+    // Add a second branch in the upstream so the clone sees more than just
+    // origin/main.
+    run_git(upstream.path(), &["branch", "feature"]);
+
+    let clone_dir = tempfile::tempdir().expect("create clone tempdir");
+    let out = Command::new("git")
+        .args([
+            "clone",
+            "-q",
+            upstream.path().to_str().unwrap(),
+            clone_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn git clone");
+    assert!(
+        out.status.success(),
+        "git clone failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let repo = CliRepo::at(clone_dir.path().to_path_buf());
+    let remotes = repo.list_remote_branches().unwrap();
+    let full_names: Vec<_> = remotes.iter().map(|b| b.full_name.clone()).collect();
+    assert!(full_names.contains(&"origin/main".to_string()));
+    assert!(full_names.contains(&"origin/feature".to_string()));
+    // origin/HEAD is a symbolic ref and should be filtered out.
+    assert!(!full_names.contains(&"origin/HEAD".to_string()));
+
+    // Remote and name should be split correctly.
+    let feature = remotes
+        .iter()
+        .find(|b| b.full_name == "origin/feature")
+        .unwrap();
+    assert_eq!(feature.remote, "origin");
+    assert_eq!(feature.name, "feature");
+}
+
+#[test]
+fn lists_remote_branches_empty_for_repo_without_remotes() {
+    let dir = init_repo();
+    let repo = open(&dir);
+    let remotes = repo.list_remote_branches().unwrap();
+    assert!(remotes.is_empty());
+}
+
+#[test]
 fn create_from_explicit_start_point() {
     let dir = init_repo();
     let repo = open(&dir);

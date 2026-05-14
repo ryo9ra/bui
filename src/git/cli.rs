@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use crate::git::{Branch, Repo, ops};
+use crate::git::{Branch, RemoteBranch, Repo, ops};
 
 pub struct CliRepo {
     pub workdir: PathBuf,
@@ -29,6 +29,9 @@ impl Default for CliRepo {
 impl Repo for CliRepo {
     fn list_local_branches(&self) -> Result<Vec<Branch>> {
         ops::branches::list_local(&self.workdir)
+    }
+    fn list_remote_branches(&self) -> Result<Vec<RemoteBranch>> {
+        ops::branches::list_remote(&self.workdir)
     }
     fn checkout(&self, name: &str) -> Result<()> {
         ops::branches::checkout(&self.workdir, name)

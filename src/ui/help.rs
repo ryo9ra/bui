@@ -16,17 +16,20 @@ pub fn draw(f: &mut Frame, area: Rect) {
 j / ↓        move down
 k / ↑        move up
 g / G        jump to top / bottom
-Enter        checkout selected branch
-c            create new branch from HEAD
-r            rename selected branch
-d            delete selected branch (confirm)
-D            force-delete selected branch (confirm)
+Enter        (Local) checkout selected branch
+c            (Local) create new branch from HEAD
+r            (Local) rename selected branch
+d            (Local) delete selected branch (confirm)
+D            (Local) force-delete selected branch (confirm)
 /            incremental search (filter by name)
-Tab/BackTab  switch tab
-R            refresh
+Tab/BackTab  switch tab (Local · Remote · Worktree)
+R            refresh local + remote
 ?            toggle this help
 q            quit
 Esc          close modal / cancel input / clear filter
+
+Remote tab: navigation and search work; fetch / pull / push and
+tracking-from-remote are coming.
 
 In search mode: type to filter (case-insensitive substring),
 ↑/↓ navigate, Enter confirm (keep filter), Esc clear & exit.
