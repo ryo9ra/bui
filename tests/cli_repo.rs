@@ -257,6 +257,64 @@ fn rev_parse(workdir: &Path, refname: &str) -> String {
 }
 
 #[test]
+fn push_sets_upstream_automatically_for_new_branch() {
+    let (work, upstream) = init_work_and_bare_upstream();
+    let repo = CliRepo::at(work.path().to_path_buf());
+
+    // A fresh branch with no upstream. Plain `git push` would fail with
+    // "has no upstream branch"; bui should retry with --set-upstream.
+    run_git(work.path(), &["checkout", "-q", "-b", "feature/new"]);
+    commit_on(work.path(), "marker", "on feature");
+    repo.push().unwrap();
+
+    // The branch should now exist on the bare upstream.
+    let upstream_branches: Vec<String> = String::from_utf8(
+        Command::new("git")
+            .current_dir(upstream.path())
+            .args(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .lines()
+    .map(|s| s.to_string())
+    .collect();
+    assert!(upstream_branches.contains(&"feature/new".to_string()));
+
+    // Upstream tracking should be configured on the working copy.
+    let upstream_cfg = Command::new("git")
+        .current_dir(work.path())
+        .args([
+            "rev-parse",
+            "--abbrev-ref",
+            "feature/new@{upstream}",
+        ])
+        .output()
+        .unwrap();
+    assert!(upstream_cfg.status.success());
+    let upstream_name = String::from_utf8(upstream_cfg.stdout).unwrap().trim().to_string();
+    assert_eq!(upstream_name, "origin/feature/new");
+}
+
+#[test]
+fn pull_without_upstream_returns_actionable_error() {
+    let (work, _upstream) = init_work_and_bare_upstream();
+    let repo = CliRepo::at(work.path().to_path_buf());
+
+    // A fresh branch with no upstream.
+    run_git(work.path(), &["checkout", "-q", "-b", "feature/no-upstream"]);
+    let err = repo.pull().expect_err("pull without upstream should fail");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("no upstream"),
+        "expected a hint about missing upstream, got: {msg}"
+    );
+    // The redundant "git pull failed:" prefix is gone.
+    assert!(!msg.contains("git pull failed"), "unexpected redundant prefix in: {msg}");
+}
+
+#[test]
 fn push_propagates_local_commits_to_bare_upstream() {
     let (work, upstream) = init_work_and_bare_upstream();
     let repo = CliRepo::at(work.path().to_path_buf());

@@ -16,10 +16,7 @@ pub fn fetch(workdir: &Path, remote: Option<&str>) -> Result<()> {
     }
     let out = cmd.output()?;
     if !out.status.success() {
-        return Err(anyhow!(
-            "git fetch failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+        return Err(anyhow!("{}", first_useful_line(&out.stderr)));
     }
     Ok(())
 }
@@ -30,10 +27,16 @@ pub fn pull(workdir: &Path) -> Result<()> {
         .args(["pull"])
         .output()?;
     if !out.status.success() {
-        return Err(anyhow!(
-            "git pull failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let msg = if stderr.contains("no tracking information") {
+            // The default git message is helpful but too long for the
+            // status bar. Surface a single line that hints at the next
+            // step.
+            "no upstream for current branch (set one and retry)".to_string()
+        } else {
+            first_useful_line(&out.stderr)
+        };
+        return Err(anyhow!("{msg}"));
     }
     Ok(())
 }
@@ -43,11 +46,32 @@ pub fn push(workdir: &Path) -> Result<()> {
         .current_dir(workdir)
         .args(["push"])
         .output()?;
-    if !out.status.success() {
-        return Err(anyhow!(
-            "git push failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+    if out.status.success() {
+        return Ok(());
     }
-    Ok(())
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    // First push of a fresh branch: auto-retry with --set-upstream so the
+    // user doesn't have to think about it. Matches lazygit's behaviour.
+    if stderr.contains("has no upstream branch") {
+        let retry = Command::new("git")
+            .current_dir(workdir)
+            .args(["push", "-u", "origin", "HEAD"])
+            .output()?;
+        if retry.status.success() {
+            return Ok(());
+        }
+        return Err(anyhow!("{}", first_useful_line(&retry.stderr)));
+    }
+    Err(anyhow!("{}", first_useful_line(stderr.as_bytes())))
+}
+
+/// First non-blank line of `stderr`. Status-bar friendly; the rest gets
+/// truncated anyway.
+fn first_useful_line(stderr: &[u8]) -> String {
+    String::from_utf8_lossy(stderr)
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim()
+        .to_string()
 }
