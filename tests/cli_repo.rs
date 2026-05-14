@@ -340,6 +340,10 @@ fn pull_without_upstream_returns_actionable_error() {
         msg.contains("no upstream"),
         "expected a hint about missing upstream, got: {msg}"
     );
+    assert!(
+        msg.contains("press u"),
+        "expected message to point at the upstream picker, got: {msg}"
+    );
     // The redundant "git pull failed:" prefix is gone.
     assert!(!msg.contains("git pull failed"), "unexpected redundant prefix in: {msg}");
 }

@@ -16,13 +16,13 @@ following are wired:
 
 - A2 Remote tab populated from `refs/remotes`
 - A7 Detail pane on the right
+- B7 Set upstream via the `u` picker
 - C1 fetch / C2 pull / C3 push via async worker thread + spinner
 
 Remaining v0.2 work: A6 (merged / worktree markers), B3 (create from
-arbitrary ref), B7 (set upstream), F3 (sort), F4 (filters), G6
-(themes), G7 (config file).
+arbitrary ref), F3 (sort), F4 (filters), G6 (themes), G7 (config file).
 
-`cargo test` runs 39 unit + 13 integration = 52 tests. When asked to
+`cargo test` runs 47 unit + 16 integration = 63 tests. When asked to
 add a feature, cross-reference `docs/spec.md` first — if it belongs
 to v0.3 / future, confirm with the user before implementing.
 

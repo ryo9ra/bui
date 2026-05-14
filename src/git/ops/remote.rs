@@ -30,9 +30,8 @@ pub fn pull(workdir: &Path) -> Result<()> {
         let stderr = String::from_utf8_lossy(&out.stderr);
         let msg = if stderr.contains("no tracking information") {
             // The default git message is helpful but too long for the
-            // status bar. Surface a single line that hints at the next
-            // step.
-            "no upstream for current branch (set one and retry)".to_string()
+            // status bar. Point the user at the upstream picker.
+            "no upstream — press u to set one".to_string()
         } else {
             first_useful_line(&out.stderr)
         };

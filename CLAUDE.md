@@ -8,8 +8,9 @@ For the functional spec, key bindings, and roadmap, see [docs/spec.md](docs/spec
 ## Repository status
 
 **v0.1 complete, v0.2 in progress.** All 14 v0.1 features (`docs/spec.md`
-§ 4.1) are wired. v0.2 progress: A2 Remote tab, A7 Detail pane, C1
-fetch / C2 pull / C3 push (async worker). `cargo test` runs 52 tests
-(39 unit + 13 integration). See `git log` for per-feature history.
+§ 4.1) are wired. v0.2 progress: A2 Remote tab, A7 Detail pane, B7 Set
+upstream picker, C1 fetch / C2 pull / C3 push (async worker). `cargo
+test` runs 63 tests (47 unit + 16 integration). See `git log` for
+per-feature history.
 When asked to implement a feature, check `docs/spec.md` — if it
 belongs to v0.3 / future, confirm with the user first.
