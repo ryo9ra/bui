@@ -268,6 +268,24 @@ pub fn rename(workdir: &Path, old: &str, new: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn checkout_tracking(workdir: &Path, local: &str, remote_ref: &str) -> Result<()> {
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args(["switch", "-c", local, "--track", remote_ref])
+        .output()?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim()
+        ));
+    }
+    Ok(())
+}
+
 pub fn set_upstream(workdir: &Path, branch: &str, upstream: &str) -> Result<()> {
     let out = Command::new("git")
         .current_dir(workdir)

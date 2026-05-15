@@ -470,6 +470,7 @@ impl App {
             KeyCode::BackTab => self.cycle_tab(false),
             KeyCode::Char('R') => self.refresh_keeping_cursor(),
             KeyCode::Enter if self.active_tab == Tab::Local => self.checkout_selected(),
+            KeyCode::Enter if self.active_tab == Tab::Remote => self.checkout_remote_selected(),
             KeyCode::Char('c') if self.active_tab == Tab::Local => {
                 self.input = Some(InputState::create_branch());
             }
@@ -501,6 +502,45 @@ impl App {
             _ => {}
         }
         self.dirty = true;
+    }
+
+    fn checkout_remote_selected(&mut self) {
+        let Some(rb) = self.selected_remote_branch() else {
+            return;
+        };
+        let local_name = rb.name.clone();
+        let remote_ref = rb.full_name.clone();
+        let local_exists = self
+            .local_branches
+            .iter()
+            .any(|b| b.name == local_name);
+
+        let result = if local_exists {
+            self.repo.checkout(&local_name)
+        } else {
+            self.repo
+                .checkout_remote_tracking(&local_name, &remote_ref)
+        };
+
+        match result {
+            Ok(()) => {
+                self.refresh(Some(&local_name));
+                self.active_tab = Tab::Local;
+                if let Some(i) = self
+                    .visible_branches()
+                    .iter()
+                    .position(|b| b.name == local_name)
+                {
+                    self.selected = i;
+                }
+                self.status = if local_exists {
+                    format!("switched to {local_name}")
+                } else {
+                    format!("tracked {remote_ref} as {local_name}")
+                };
+            }
+            Err(e) => self.status = format!("error: {e}"),
+        }
     }
 
     fn request_delete_remote(&mut self) {
@@ -956,6 +996,9 @@ mod tests {
             Ok(())
         }
         fn delete_remote_branch(&self, _: &str, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn checkout_remote_tracking(&self, _: &str, _: &str) -> anyhow::Result<()> {
             Ok(())
         }
     }
@@ -1592,6 +1635,32 @@ mod tests {
         app.submit_input();
         assert!(app.input.is_none());
         assert!(app.status.contains("created topic from origin/main"));
+    }
+
+    #[test]
+    fn enter_on_remote_with_no_matching_local_creates_tracking() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.remote_branches = vec![remote("origin", "feature/foo")];
+        app.active_tab = Tab::Remote;
+        app.selected_remote = 0;
+        app.on_key(k(KeyCode::Enter));
+        assert_eq!(app.active_tab, Tab::Local);
+        assert!(
+            app.status.contains("tracked origin/feature/foo"),
+            "status was: {}",
+            app.status
+        );
+    }
+
+    #[test]
+    fn enter_on_remote_with_existing_local_switches() {
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        app.remote_branches = vec![remote("origin", "feature/foo")];
+        app.active_tab = Tab::Remote;
+        app.selected_remote = 0;
+        app.on_key(k(KeyCode::Enter));
+        assert_eq!(app.active_tab, Tab::Local);
+        assert_eq!(app.status, "switched to feature/foo");
     }
 
     #[test]

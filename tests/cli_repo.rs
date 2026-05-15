@@ -412,6 +412,74 @@ fn push_sets_upstream_automatically_for_new_branch() {
 }
 
 #[test]
+fn checkout_remote_tracking_creates_local_branch_with_upstream() {
+    let (work, upstream) = init_work_and_bare_upstream();
+
+    // A second worker pushes a brand new branch to the bare upstream.
+    let other = tempfile::tempdir().expect("other tempdir");
+    let out = Command::new("git")
+        .args([
+            "clone",
+            "-q",
+            upstream.path().to_str().unwrap(),
+            other.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    run_git(other.path(), &["config", "user.name", "bui-test"]);
+    run_git(other.path(), &["config", "user.email", "bui-test@example.com"]);
+    run_git(other.path(), &["config", "commit.gpgsign", "false"]);
+    run_git(other.path(), &["checkout", "-q", "-b", "feature/from-elsewhere"]);
+    commit_on(other.path(), "f", "f");
+    run_git(other.path(), &["push", "-q", "-u", "origin", "feature/from-elsewhere"]);
+
+    // The bui-side clone fetches and gains the remote-tracking ref.
+    let repo = CliRepo::at(work.path().to_path_buf());
+    repo.fetch(None).unwrap();
+    let names_before: Vec<_> = repo
+        .list_local_branches()
+        .unwrap()
+        .into_iter()
+        .map(|b| b.name)
+        .collect();
+    assert!(!names_before.contains(&"feature/from-elsewhere".to_string()));
+
+    // Create + checkout a tracking branch via the new API.
+    repo.checkout_remote_tracking(
+        "feature/from-elsewhere",
+        "origin/feature/from-elsewhere",
+    )
+    .unwrap();
+
+    // Local branch exists and is current.
+    let branches = repo.list_local_branches().unwrap();
+    let new_local = branches
+        .iter()
+        .find(|b| b.name == "feature/from-elsewhere")
+        .expect("new local should be listed");
+    assert!(new_local.is_current);
+
+    // Upstream is set.
+    let upstream_name = String::from_utf8(
+        Command::new("git")
+            .current_dir(work.path())
+            .args([
+                "rev-parse",
+                "--abbrev-ref",
+                "feature/from-elsewhere@{upstream}",
+            ])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    assert_eq!(upstream_name, "origin/feature/from-elsewhere");
+}
+
+#[test]
 fn set_upstream_configures_tracking_for_local_branch() {
     let (work, _upstream) = init_work_and_bare_upstream();
     let repo = CliRepo::at(work.path().to_path_buf());

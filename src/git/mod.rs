@@ -19,4 +19,7 @@ pub trait Repo: Send + Sync {
     fn push_force_with_lease(&self) -> Result<()>;
     fn set_upstream(&self, branch: &str, upstream: &str) -> Result<()>;
     fn delete_remote_branch(&self, remote: &str, branch: &str) -> Result<()>;
+    /// Create local branch `local` tracking `remote_ref` (e.g.
+    /// `origin/feature/foo`) and switch to it atomically.
+    fn checkout_remote_tracking(&self, local: &str, remote_ref: &str) -> Result<()>;
 }

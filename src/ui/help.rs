@@ -17,6 +17,8 @@ j / ↓        move down
 k / ↑        move up
 g / G        jump to top / bottom
 Enter        (Local) checkout selected branch
+Enter        (Remote) create local tracking branch (or switch
+             to existing same-name local) and move to Local tab
 c            (Local) create new branch from HEAD
 C            create new branch from selected ref (Local or Remote)
 r            (Local) rename selected branch

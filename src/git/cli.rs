@@ -63,4 +63,7 @@ impl Repo for CliRepo {
     fn delete_remote_branch(&self, remote: &str, branch: &str) -> Result<()> {
         ops::remote::delete_branch(&self.workdir, remote, branch)
     }
+    fn checkout_remote_tracking(&self, local: &str, remote_ref: &str) -> Result<()> {
+        ops::branches::checkout_tracking(&self.workdir, local, remote_ref)
+    }
 }
