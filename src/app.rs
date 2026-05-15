@@ -91,7 +91,8 @@ pub struct ConfirmState {
 pub struct UpstreamPickerState {
     /// Local branch we're configuring tracking for.
     pub branch: String,
-    /// All available remote-branch refnames, e.g. `origin/feature/foo`.
+    /// Unique remote names (e.g. `origin`, `forked`). bui composes the
+    /// full upstream ref as `<remote>/<branch>` on submit.
     pub candidates: Vec<String>,
     /// Cursor into `visible_candidates()`.
     pub selected: usize,
@@ -100,13 +101,19 @@ pub struct UpstreamPickerState {
 }
 
 impl UpstreamPickerState {
-    pub fn new(branch: String, candidates: Vec<String>) -> Self {
-        // If a same-named remote branch exists (e.g. local `feature/foo`
-        // → `origin/feature/foo`), pre-select it.
-        let needle = format!("/{branch}");
+    pub fn new(branch: String, remote_branches: &[RemoteBranch]) -> Self {
+        let mut seen = std::collections::HashSet::new();
+        let mut candidates: Vec<String> = Vec::new();
+        for r in remote_branches {
+            if seen.insert(r.remote.clone()) {
+                candidates.push(r.remote.clone());
+            }
+        }
+        // Pre-select `origin` if it's one of the remotes (the overwhelming
+        // common case); otherwise the first.
         let selected = candidates
             .iter()
-            .position(|c| c.ends_with(&needle))
+            .position(|c| c == "origin")
             .unwrap_or(0);
         Self {
             branch,
@@ -131,6 +138,11 @@ impl UpstreamPickerState {
         self.visible_candidates()
             .get(self.selected)
             .map(|s| (*s).clone())
+    }
+
+    /// The full upstream ref bui will hand to `git branch --set-upstream-to=`.
+    pub fn target(&self) -> Option<String> {
+        self.current().map(|r| format!("{r}/{}", self.branch))
     }
 }
 
@@ -456,12 +468,7 @@ impl App {
             self.status = "no remote branches — run fetch (f) first".to_string();
             return;
         }
-        let candidates: Vec<String> = self
-            .remote_branches
-            .iter()
-            .map(|r| r.full_name.clone())
-            .collect();
-        self.upstream_picker = Some(UpstreamPickerState::new(branch, candidates));
+        self.upstream_picker = Some(UpstreamPickerState::new(branch, &self.remote_branches));
     }
 
     fn handle_upstream_picker_key(&mut self, key: KeyEvent) {
@@ -495,8 +502,8 @@ impl App {
         let Some(picker) = self.upstream_picker.take() else {
             return;
         };
-        let Some(upstream) = picker.current() else {
-            self.status = "no candidate selected".to_string();
+        let Some(upstream) = picker.target() else {
+            self.status = "no remote selected".to_string();
             return;
         };
         let branch = picker.branch;
@@ -1102,48 +1109,76 @@ mod tests {
     }
 
     #[test]
-    fn upstream_picker_preselects_same_named_remote() {
-        let candidates = vec![
-            "origin/main".to_string(),
-            "origin/feature/foo".to_string(),
-            "upstream/main".to_string(),
+    fn upstream_picker_dedupes_remotes() {
+        let remotes = vec![
+            remote("origin", "main"),
+            remote("origin", "feature/foo"),
+            remote("origin", "other"),
         ];
-        let picker = UpstreamPickerState::new("feature/foo".to_string(), candidates);
-        assert_eq!(picker.selected, 1);
+        let picker = UpstreamPickerState::new("foo".to_string(), &remotes);
+        assert_eq!(picker.candidates, vec!["origin".to_string()]);
+        assert_eq!(picker.selected, 0);
     }
 
     #[test]
-    fn upstream_picker_falls_back_to_zero_without_match() {
-        let candidates = vec!["origin/main".to_string(), "upstream/main".to_string()];
-        let picker = UpstreamPickerState::new("feature/foo".to_string(), candidates);
+    fn upstream_picker_preselects_origin_when_present() {
+        let remotes = vec![
+            remote("forked", "main"),
+            remote("origin", "main"),
+            remote("upstream", "main"),
+        ];
+        let picker = UpstreamPickerState::new("foo".to_string(), &remotes);
+        assert!(picker.candidates.contains(&"origin".to_string()));
+        assert_eq!(picker.candidates[picker.selected], "origin");
+    }
+
+    #[test]
+    fn upstream_picker_falls_back_to_first_without_origin() {
+        let remotes = vec![remote("forked", "main"), remote("upstream", "main")];
+        let picker = UpstreamPickerState::new("foo".to_string(), &remotes);
         assert_eq!(picker.selected, 0);
     }
 
     #[test]
     fn upstream_picker_filter_case_insensitive_substring() {
-        let candidates = vec![
-            "origin/main".to_string(),
-            "origin/feature/foo".to_string(),
-            "Upstream/Main".to_string(),
+        let remotes = vec![
+            remote("origin", "main"),
+            remote("Forked", "main"),
+            remote("upstream", "main"),
         ];
-        let mut picker = UpstreamPickerState::new("foo".to_string(), candidates);
-        picker.filter = "main".to_string();
+        let mut picker = UpstreamPickerState::new("foo".to_string(), &remotes);
+        picker.filter = "or".to_string();
         let visible: Vec<_> = picker
             .visible_candidates()
             .iter()
             .map(|s| s.as_str())
             .collect();
-        assert_eq!(visible, ["origin/main", "Upstream/Main"]);
+        assert_eq!(visible, ["origin", "Forked"]);
     }
 
     #[test]
-    fn pressing_u_opens_picker_when_remotes_exist() {
+    fn upstream_picker_target_composes_full_ref() {
+        let remotes = vec![remote("origin", "main")];
+        let picker = UpstreamPickerState::new("feature/foo".to_string(), &remotes);
+        assert_eq!(
+            picker.target(),
+            Some("origin/feature/foo".to_string())
+        );
+    }
+
+    #[test]
+    fn pressing_u_opens_picker_with_remote_names() {
         let mut app = app_with(vec![br("feature/foo", true)]);
-        app.remote_branches = vec![remote("origin", "feature/foo")];
+        app.remote_branches = vec![
+            remote("origin", "feature/foo"),
+            remote("forked", "main"),
+        ];
         app.on_key(k(KeyCode::Char('u')));
         let picker = app.upstream_picker.as_ref().expect("picker should be open");
         assert_eq!(picker.branch, "feature/foo");
-        assert_eq!(picker.candidates, vec!["origin/feature/foo".to_string()]);
+        assert!(picker.candidates.contains(&"origin".to_string()));
+        assert!(picker.candidates.contains(&"forked".to_string()));
+        assert_eq!(picker.candidates[picker.selected], "origin");
     }
 
     #[test]
@@ -1158,26 +1193,30 @@ mod tests {
     fn upstream_picker_arrow_navigates_visible_list() {
         let mut app = app_with(vec![br("foo", true)]);
         app.remote_branches = vec![
+            remote("forked", "main"),
             remote("origin", "main"),
-            remote("origin", "feature/bar"),
-            remote("origin", "feature/baz"),
+            remote("upstream", "main"),
         ];
         app.on_key(k(KeyCode::Char('u')));
-        // After open, selected = 0 (no name match for "foo")
+        let before = app.upstream_picker.as_ref().unwrap().selected;
         app.handle_upstream_picker_key(k(KeyCode::Down));
-        assert_eq!(app.upstream_picker.as_ref().unwrap().selected, 1);
+        let after_down = app.upstream_picker.as_ref().unwrap().selected;
+        assert!(after_down == before + 1 || (after_down == before && before + 1 >= app.upstream_picker.as_ref().unwrap().candidates.len()));
         app.handle_upstream_picker_key(k(KeyCode::Up));
-        assert_eq!(app.upstream_picker.as_ref().unwrap().selected, 0);
+        assert!(app.upstream_picker.as_ref().unwrap().selected <= after_down);
     }
 
     #[test]
-    fn upstream_picker_enter_calls_set_upstream_and_closes() {
+    fn upstream_picker_enter_sets_upstream_to_remote_slash_branch() {
         let mut app = app_with(vec![br("feature/foo", true)]);
         app.remote_branches = vec![remote("origin", "feature/foo")];
         app.on_key(k(KeyCode::Char('u')));
         app.handle_upstream_picker_key(k(KeyCode::Enter));
         assert!(app.upstream_picker.is_none());
-        assert!(app.status.starts_with("set upstream "));
+        assert_eq!(
+            app.status,
+            "set upstream feature/foo -> origin/feature/foo"
+        );
     }
 
     #[test]

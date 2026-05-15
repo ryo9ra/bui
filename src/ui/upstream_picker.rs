@@ -9,7 +9,7 @@ use ratatui::{
 use crate::app::UpstreamPickerState;
 
 pub fn draw(f: &mut Frame, area: Rect, picker: &UpstreamPickerState) {
-    let popup = centered_rect(64, 14, area);
+    let popup = centered_rect(64, 16, area);
     f.render_widget(Clear, popup);
 
     let title = format!(" Set upstream for '{}' ", picker.branch);
@@ -34,16 +34,13 @@ pub fn draw(f: &mut Frame, area: Rect, picker: &UpstreamPickerState) {
         Style::default().fg(Color::DarkGray),
     )));
 
-    // Candidate rows.
+    // Candidate rows — each is a remote name (e.g. "origin").
     if visible.is_empty() {
         lines.push(Line::from(Span::styled(
             " (no matches)",
             label.add_modifier(Modifier::DIM),
         )));
     } else {
-        // Reserve room so the popup never overflows. The popup body is
-        // 14 rows minus 2 borders, 2 filter rows, 2 footer rows = ~8 rows
-        // for candidates.
         for (i, candidate) in visible.iter().enumerate().take(8) {
             let mut style = Style::default();
             let prefix = if i == picker.selected {
@@ -68,7 +65,21 @@ pub fn draw(f: &mut Frame, area: Rect, picker: &UpstreamPickerState) {
         }
     }
 
-    // Footer hint.
+    // Resolved-target hint: what bui will hand to git on Enter.
+    lines.push(Line::from(""));
+    if let Some(target) = picker.target() {
+        lines.push(Line::from(vec![
+            Span::styled(" Will track: ", label),
+            Span::styled(target, Style::default().fg(Color::Cyan)),
+        ]));
+    } else {
+        lines.push(Line::from(Span::styled(
+            " Will track: —",
+            label.add_modifier(Modifier::DIM),
+        )));
+    }
+
+    // Footer.
     lines.push(Line::from(Span::styled(
         "─".repeat(60),
         Style::default().fg(Color::DarkGray),
