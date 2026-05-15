@@ -27,7 +27,8 @@ D            (Local) force-delete selected branch (confirm)
 d            (Remote) push --delete the selected remote branch (confirm)
 W            (Local) add worktree (2 prompts):
               · step 1: new branch name off selected (empty = use as-is)
-              · step 2: path (~ expands)
+              · step 2: path (prefilled; ~ expands; ^U to clear)
+              Set [worktree] root in config.toml to control prefill.
 Enter        (Worktree) show `cd <path>` hint in status bar
 d            (Worktree) remove selected worktree (confirm)
 u            (Local) set upstream — pick a remote (e.g. origin)

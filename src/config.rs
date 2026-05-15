@@ -23,6 +23,7 @@ use serde::Deserialize;
 pub struct Config {
     pub theme: Theme,
     pub fetch: FetchConfig,
+    pub worktree: WorktreeConfig,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -32,6 +33,14 @@ pub struct FetchConfig {
     /// surprise users who keep local-only tags. Set to `true` if you only
     /// keep pushed tags.
     pub prune_tags: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct WorktreeConfig {
+    /// Optional root directory under which new worktrees are placed by
+    /// default. The `W` 2-step prompt prefills step 2 with
+    /// `<root>/<branch>` when set, or `../wt-<leaf>` when not.
+    pub root: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -93,6 +102,7 @@ fn config_path() -> Option<PathBuf> {
 struct RawConfig {
     theme: RawTheme,
     fetch: RawFetch,
+    worktree: RawWorktree,
 }
 
 #[derive(Default, Deserialize)]
@@ -111,6 +121,12 @@ struct RawFetch {
     prune_tags: Option<bool>,
 }
 
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct RawWorktree {
+    root: Option<String>,
+}
+
 impl RawConfig {
     fn into_config(self) -> Config {
         let defaults = Theme::default();
@@ -125,6 +141,9 @@ impl RawConfig {
             },
             fetch: FetchConfig {
                 prune_tags: self.fetch.prune_tags.unwrap_or(false),
+            },
+            worktree: WorktreeConfig {
+                root: self.worktree.root,
             },
         }
     }
@@ -231,6 +250,23 @@ mod tests {
     fn fetch_section_defaults_to_no_prune_tags() {
         let c = load_from_str("");
         assert!(!c.fetch.prune_tags);
+    }
+
+    #[test]
+    fn worktree_root_is_none_by_default() {
+        let c = load_from_str("");
+        assert!(c.worktree.root.is_none());
+    }
+
+    #[test]
+    fn worktree_root_can_be_overridden() {
+        let c = load_from_str(
+            r#"
+            [worktree]
+            root = "~/wt"
+        "#,
+        );
+        assert_eq!(c.worktree.root.as_deref(), Some("~/wt"));
     }
 
     #[test]

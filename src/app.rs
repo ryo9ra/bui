@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
 use anyhow::Result;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::config::Config;
@@ -158,12 +158,30 @@ impl InputState {
     pub fn add_worktree_step_path(
         base: String,
         new_branch: Option<String>,
+        worktree_root: Option<&str>,
     ) -> Self {
-        let label = new_branch.as_deref().unwrap_or(&base);
+        let label = new_branch.as_deref().unwrap_or(&base).to_string();
+        let default = default_worktree_path(worktree_root, &label);
         Self {
-            prompt: format!("Worktree path for '{label}' (~ expands)"),
-            value: String::new(),
+            prompt: format!("Worktree path for '{label}' (~ expands, ^U clears)"),
+            value: default,
             mode: InputMode::AddWorktreePath { base, new_branch },
+        }
+    }
+}
+
+/// Prefill suggestion for the worktree path:
+/// - When `[worktree] root` is set, place under it (preserves any slashes
+///   in the branch name to mirror its hierarchy).
+/// - Otherwise, drop a `wt-<leaf>` sibling beside the current worktree
+///   (`../` parent) — leaf = last `/`-separated segment of the branch so
+///   nested branch names don't accidentally create deep paths.
+pub(crate) fn default_worktree_path(root: Option<&str>, branch: &str) -> String {
+    match root {
+        Some(r) => format!("{}/{branch}", r.trim_end_matches('/')),
+        None => {
+            let leaf = branch.rsplit('/').next().unwrap_or(branch);
+            format!("../wt-{leaf}")
         }
     }
 }
@@ -915,7 +933,16 @@ impl App {
             KeyCode::Backspace => {
                 input.value.pop();
             }
-            KeyCode::Char(c) => input.value.push(c),
+            // ^U: readline-style "clear the whole line", handy when the
+            // step-2 prefill isn't what the user wants.
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                input.value.clear();
+            }
+            KeyCode::Char(c)
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+            {
+                input.value.push(c);
+            }
             _ => {}
         }
         self.dirty = true;
@@ -955,8 +982,12 @@ impl App {
                 // Step 1 → step 2. Empty value is meaningful here: it means
                 // "reuse the existing base branch, don't create a new one".
                 let new_branch = if value.is_empty() { None } else { Some(value) };
-                self.input =
-                    Some(InputState::add_worktree_step_path(base, new_branch));
+                let root = self.config.worktree.root.clone();
+                self.input = Some(InputState::add_worktree_step_path(
+                    base,
+                    new_branch,
+                    root.as_deref(),
+                ));
             }
             InputMode::AddWorktreePath { base, new_branch } => {
                 if value.is_empty() {
@@ -1888,11 +1919,72 @@ mod tests {
     }
 
     #[test]
+    fn default_worktree_path_uses_root_when_set() {
+        assert_eq!(
+            default_worktree_path(Some("~/wt"), "feature/oauth"),
+            "~/wt/feature/oauth"
+        );
+        assert_eq!(
+            default_worktree_path(Some("/abs/dir/"), "main"),
+            "/abs/dir/main"
+        );
+    }
+
+    #[test]
+    fn default_worktree_path_uses_leaf_fallback_without_root() {
+        assert_eq!(
+            default_worktree_path(None, "feature/oauth"),
+            "../wt-oauth"
+        );
+        assert_eq!(default_worktree_path(None, "main"), "../wt-main");
+    }
+
+    #[test]
+    fn path_step_prefills_default_from_config_root() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.config.worktree.root = Some("~/wt".to_string());
+        app.selected = 0;
+        app.on_key(k(KeyCode::Char('W')));
+        if let Some(input) = app.input.as_mut() {
+            input.value = "oauth-wip".to_string();
+        }
+        app.submit_input(); // step 1 → step 2
+        let input = app.input.as_ref().expect("step 2");
+        assert_eq!(input.value, "~/wt/oauth-wip");
+    }
+
+    #[test]
+    fn path_step_falls_back_to_leaf_default_without_root() {
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('W')));
+        // Empty step 1 → step 2 prefills against base.
+        app.submit_input();
+        let input = app.input.as_ref().expect("step 2");
+        assert_eq!(input.value, "../wt-foo");
+    }
+
+    #[test]
+    fn ctrl_u_clears_input_value() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.input = Some(InputState::create_branch());
+        if let Some(input) = app.input.as_mut() {
+            input.value = "pre-filled".to_string();
+        }
+        app.handle_input_key(KeyEvent::new(
+            KeyCode::Char('u'),
+            KeyModifiers::CONTROL,
+        ));
+        assert_eq!(app.input.as_ref().unwrap().value, "");
+    }
+
+    #[test]
     fn path_step_submission_completes_the_flow() {
         let mut app = app_with(vec![br("main", true)]);
         app.input = Some(InputState::add_worktree_step_path(
             "main".to_string(),
             Some("oauth-wip".to_string()),
+            None,
         ));
         if let Some(input) = app.input.as_mut() {
             input.value = "/tmp/wt".to_string();
