@@ -10,6 +10,12 @@ The defining constraint: **bui is about branches**, not the whole of git.
 Staging, committing, merging, rebasing, and cherry-picking are out of
 scope (or, at best, delegated to external tools).
 
+## Status (2026-05-15)
+
+**v0.1 + v0.2 + v0.3 are feature-complete.** Every code in §4.1 and §6
+is wired. `cargo test` runs 131 tests (104 unit + 27 integration). See
+the per-feature checkmarks in §6 below.
+
 ## 2. Goals
 
 - Fast keyboard-driven branch CRUD that beats raw `git` CLI for repos with
@@ -26,12 +32,13 @@ scope (or, at best, delegated to external tools).
 - Mouse support (G8)
 - Command palette (G3)
 - PR / forge integration (H5)
-- Upstream ahead/behind display (A5)
+- Upstream ahead/behind display (A5) — superseded by A8 (diff pane),
+  which shows the same information in a richer form
 - ASCII commit graph (A9)
 
 Out-of-scope items are revisited only if real demand emerges.
 
-## 4. v0.1 scope
+## 4. v0.1 scope (baseline)
 
 ### 4.1 Feature list
 
@@ -52,68 +59,98 @@ Out-of-scope items are revisited only if real demand emerges.
 | G5   | Status bar (result, error, async spinner)            |
 | I1   | `cargo install bui` distribution                     |
 
-### 4.2 Key bindings
-
-| Key                   | Action                                  |
-|-----------------------|-----------------------------------------|
-| `j` / `↓`             | Move selection down                     |
-| `k` / `↑`             | Move selection up                       |
-| `g` / `Home`          | Jump to top                             |
-| `G` / `End`           | Jump to bottom                          |
-| `Ctrl-d` / `Ctrl-u`   | Half-page down / up                     |
-| `Enter`               | Checkout selected branch                |
-| `c`                   | Create new branch (opens input)         |
-| `r`                   | Rename selected branch (opens input)    |
-| `d`                   | Delete (`-d`, confirm)                  |
-| `D`                   | Force-delete (`-D`, confirm)            |
-| `/`                   | Start incremental search                |
-| `Esc`                 | Cancel input / modal / search           |
-| `R`                   | Refresh                                 |
-| `?`                   | Toggle help overlay                     |
-| `Tab` / `Shift-Tab`   | Switch tab (Local active in v0.1)       |
-| `q`                   | Quit                                    |
-
-### 4.3 Behaviour notes
+### 4.2 Behaviour notes (cumulative)
 
 - The current branch cannot be deleted; pressing `d`/`D` on it surfaces
   an error in the status bar (verbatim from `git`).
 - Renaming the current branch is allowed (`git branch -m <new>`).
 - After every successful mutation, the affected list refreshes and the
   cursor stays on the same branch (or moves to the new name on rename).
-- Errors from `git` are surfaced verbatim in the status bar; full stderr
-  is available in the help/log overlay (mechanism TBD in v0.1).
-- The Remote and Worktree tabs render in v0.1 as **placeholders**: they
-  can be focused (so the tab affordance is visible from day one) but the
-  body says "Coming in v0.2 / v0.3".
+- Errors from `git` are surfaced verbatim in the status bar; only the
+  first useful stderr line is rendered (status bar is one row).
+- The Remote and Worktree tabs are fully active as of v0.2 / v0.3
+  respectively.
 
-### 4.4 Default UI layout (v0.1)
+## 5. Full key map (current)
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│ [Local]  Remote   Worktree                          bui v0.1   │  Tab bar
-├────────────────────────────────────────────────────────────────┤
-│ * main                       abc1234  fix: oauth      2d ago   │
-│   feature/foo                def5678  wip: ui         1h ago   │  Main pane
-│   feature/bar                ghi9abc  refactor: io    3d ago   │  (v0.1: full
-│   chore/deps                 jkl0def  bump tokio      5d ago   │   width)
-│                                                                │
-├────────────────────────────────────────────────────────────────┤
-│ /search                                       ⟳ ready          │  Status bar
-└────────────────────────────────────────────────────────────────┘
-```
+Bindings labelled `(Local)` / `(Remote)` / `(Worktree)` only fire when
+that tab is active. Unlabelled keys work from anywhere.
 
-## 5. Architecture
+### Navigation & view
 
-### 5.1 Event loop
+| Key                 | Action                                          |
+|---------------------|-------------------------------------------------|
+| `j` / `↓`           | Move selection down                             |
+| `k` / `↑`           | Move selection up                               |
+| `g` / `Home`        | Jump to top                                     |
+| `G` / `End`         | Jump to bottom                                  |
+| `Tab` / `Shift-Tab` | Cycle tab (Local → Remote → Worktree)           |
+| `R`                 | Refresh local + remote + worktrees              |
+| `?`                 | Toggle help overlay                             |
+| `q`                 | Quit                                            |
+| `Esc`               | Cancel modal / input / clear filter             |
+
+### Branch operations
+
+| Key       | Action                                                  |
+|-----------|---------------------------------------------------------|
+| `Enter`   | (Local) checkout                                        |
+| `Enter`   | (Remote) create local tracking branch & switch          |
+| `Enter`   | (Worktree) show `cd <path>` hint in status              |
+| `c`       | (Local) create branch from HEAD                         |
+| `C`       | Create branch from selected ref (Local or Remote)       |
+| `r`       | (Local) rename selected branch                          |
+| `d`       | (Local) delete `-d` · (Remote) `push --delete` · (Worktree) remove |
+| `D`       | (Local) force-delete `-D`                               |
+| `u`       | (Local) set upstream — pick a remote                    |
+| `W`       | (Local) add worktree (2-step prompt)                    |
+
+### Remote sync
+
+| Key   | Action                                                              |
+|-------|---------------------------------------------------------------------|
+| `f`   | `git fetch --all --prune [--prune-tags]` (async)                    |
+| `p`   | `git pull` (async)                                                  |
+| `P`   | `git push` (async). On non-fast-forward, bui offers a              |
+|       | confirmable `--force-with-lease` retry.                             |
+
+### Filter / sort / view
+
+| Key   | Action                                                          |
+|-------|-----------------------------------------------------------------|
+| `/`   | Incremental name search                                         |
+| `s`   | Toggle sort (recency ↔ name)                                    |
+| `F`   | (Local) cycle filter (all → merged → unmerged → all)            |
+| `v`   | Toggle right pane (detail ↔ diff vs current branch)             |
+
+### Input editing
+
+| Key      | Action                                          |
+|----------|-------------------------------------------------|
+| `Ctrl-U` | Clear the input value (readline-style)          |
+
+### Confirm dialog
+
+| Key             | Action                                       |
+|-----------------|----------------------------------------------|
+| `←` / `→` / `h` / `l` | Move Yes/No focus                       |
+| `Tab` / `Shift-Tab`   | Toggle Yes/No focus                     |
+| `Enter`         | Accept whichever is focused                  |
+| `y` / `Y`       | Direct accept                                |
+| `n` / `N` / `Esc` | Direct cancel                              |
+
+Default focus is **No** for destructive operations.
+
+## 6. Architecture
+
+### 6.1 Event loop
 
 A single `mpsc::Receiver<Event>` drives the app. Producers:
 
 - **Input thread** — crossterm key events → `Event::Input(KeyEvent)`
-- **Tick thread** — ~30 Hz → `Event::Tick` (drives spinners and any
-  time-based redraws)
+- **Tick thread** — ~4 Hz → `Event::Tick` (advances the spinner only
+  while a task is pending)
 - **Task worker** → `Event::TaskResult(TaskId, Result<Outcome>)`
-
-Sketch:
 
 ```rust
 loop {
@@ -122,167 +159,186 @@ loop {
         Event::Tick             => app.on_tick(),
         Event::TaskResult(id,r) => app.on_task_result(id, r),
     }
-    if app.dirty() { terminal.draw(|f| ui::draw(f, &app))?; }
-    if app.should_quit() { break; }
+    if app.dirty { terminal.draw(|f| ui::draw(f, &app))?; }
+    if app.should_quit { break; }
 }
 ```
 
 App state mutates only inside the `on_*` handlers. UI is a pure projection
 of state.
 
-### 5.2 Backend abstraction
+### 6.2 Backend abstraction
+
+The trait actually shipped:
 
 ```rust
 trait Repo: Send + Sync {
     fn list_local_branches(&self) -> Result<Vec<Branch>>;
+    fn list_remote_branches(&self) -> Result<Vec<RemoteBranch>>;
     fn checkout(&self, name: &str) -> Result<()>;
     fn create_branch(&self, name: &str, from: Option<&str>) -> Result<()>;
     fn delete_branch(&self, name: &str, force: bool) -> Result<()>;
     fn rename_branch(&self, old: &str, new: &str) -> Result<()>;
-
-    // v0.2:
-    fn list_remote_branches(&self) -> Result<Vec<RemoteBranch>>;
-    fn fetch(&self, remote: Option<&str>) -> Result<()>;
-    fn pull(&self, mode: PullMode) -> Result<()>;
-    fn push(&self, opts: PushOpts) -> Result<()>;
-
-    // v0.3:
+    fn fetch(&self, remote: Option<&str>, prune_tags: bool) -> Result<()>;
+    fn pull(&self) -> Result<()>;
+    fn push(&self) -> Result<()>;
+    fn push_force_with_lease(&self) -> Result<()>;
+    fn set_upstream(&self, branch: &str, upstream: &str) -> Result<()>;
+    fn delete_remote_branch(&self, remote: &str, branch: &str) -> Result<()>;
+    fn checkout_remote_tracking(&self, local: &str, remote_ref: &str) -> Result<()>;
     fn list_worktrees(&self) -> Result<Vec<Worktree>>;
-    fn add_worktree(&self, path: &Path, branch: &str) -> Result<()>;
-    fn remove_worktree(&self, path: &Path) -> Result<()>;
-    fn diff_branches(&self, a: &str, b: &str) -> Result<Diff>;
+    fn add_worktree(&self, path: &str, base: &str, new_branch: Option<&str>) -> Result<()>;
+    fn remove_worktree(&self, path: &str) -> Result<()>;
+    fn branch_diff(&self, target: &str, base: &str) -> Result<BranchDiff>;
 }
 ```
 
-v0.1 implementation: `CliRepo`. Each method spawns `git` via
+Sole implementation: `CliRepo`. Each method spawns `git` via
 `std::process::Command` and parses machine-readable output
-(`for-each-ref --format=…`, `--porcelain`, `-z`).
+(`for-each-ref --format=…`, `worktree list --porcelain`, `--pretty=format:%h\x1f%s`).
 
-### 5.3 Pluggable layout
-
-The render path queries a `LayoutSpec`:
+### 6.3 Layout
 
 ```rust
 struct LayoutSpec {
-    tabs: bool,           // top tab bar
-    main: MainSpec,       // see below
+    tabs: bool,
+    main: MainSpec,
     statusbar: bool,
 }
 
 enum MainSpec {
-    BranchList,                       // v0.1: full-width list
-    Split(BranchList, RightPane),     // v0.2+: list | right pane
+    BranchList,   // (unused at runtime; reserved for "no detail" mode)
+    Split,        // list | right pane
 }
 
 enum RightPane {
-    Detail,   // v0.2: latest commit body + file stats
-    Diff,     // v0.3: A...B diff against current branch
+    Detail,       // selected branch metadata
+    Diff,         // commits ahead/behind current branch
 }
 ```
 
-- **v0.1** uses `MainSpec::BranchList`.
-- **v0.2** flips to `MainSpec::Split(BranchList, RightPane::Detail)`.
-- **v0.3** lets the user toggle the right pane between `Detail` and
-  `Diff`.
+The `RightPane` variant lives on `App` (not on `MainSpec`) so the user
+can toggle Detail ↔ Diff at runtime via `v` without re-shaping the
+layout.
 
-This is the *only* reason we abstract the layout from day one: the
-diff-vs-detail decision is a v0.3 feature, but we don't want to rewrite
-the render path when it lands. Locking the right pane behind an enum
-makes it a localized change.
+### 6.4 Async task model
 
-### 5.4 Refresh model
-
-State mutations emit `Event::RepoChanged(Scope)`:
+Long-running git ops (fetch / pull / push / force-with-lease push /
+remote-branch delete) flow through a dedicated worker thread:
 
 ```rust
-enum Scope { LocalBranches, RemoteBranches, Worktrees }
+pub enum Action {
+    Fetch { remote: Option<String>, prune_tags: bool },
+    Pull,
+    Push,
+    PushForceWithLease,
+    DeleteRemoteBranch { remote: String, branch: String },
+}
+
+pub enum Outcome {
+    Fetched,
+    Pulled,
+    Pushed,
+    RemoteBranchDeleted { full_name: String },
+}
 ```
 
-Each view observes the scopes it depends on and dispatches a re-fetch
-through the worker. This decouples "what changed" from "what to redraw"
-and lets v0.2 add remote-side mutations without touching the local view.
+App carries `pending_task: Option<PendingTask>` and a monotonic
+`next_task_id`. While a task is in flight, the status bar shows a
+braille spinner; a second `f`/`p`/`P` is ignored. The corresponding
+`on_task_result` handler may chain a follow-up confirm dialog (e.g.
+non-fast-forward push offers a `--force-with-lease` retry).
 
-### 5.5 Module map
+### 6.5 Module map (current)
 
 ```
-src/main.rs       terminal lifecycle, panic hook
-src/app.rs        App state, main loop, key dispatch
-src/event.rs      Event / Action types, mpsc channels
-src/task.rs       worker thread, mpsc bridge
-src/error.rs      BuiError
-src/config.rs     stub (populated in v0.2)
+src/main.rs            terminal lifecycle, panic hook
+src/app.rs             App state, main loop, key dispatch, picker/confirm/
+                       input/spinner state machines
+src/event.rs           Event / Outcome types, mpsc channels
+src/task.rs            worker thread that drains Action → Outcome
+src/error.rs           BuiError
+src/config.rs          TOML config loader (theme, fetch.prune_tags,
+                       worktree.root)
+src/lib.rs             re-export modules for integration tests
 src/ui/
-  mod.rs          top-level layout
-  layout.rs       LayoutSpec, RightPane
-  tabs.rs         Local / Remote / Worktree tab strip
-  branch_list.rs  the v0.1 main view
-  detail.rs       v0.2 right pane (Detail)
-  diff.rs         v0.3 right pane (Diff)
-  statusbar.rs    result / error / spinner
-  help.rs         `?` overlay
-  confirm.rs      destructive-op confirmation
-  input.rs        single-line input (create / rename / search)
+  mod.rs               top-level layout dispatch
+  layout.rs            LayoutSpec / MainSpec / RightPane
+  tabs.rs              Local / Remote / Worktree tab strip + status meta
+  branch_list.rs       Local, Remote, Worktree list renderers
+  detail.rs            right-pane detail for branches and worktrees
+  diff.rs              right-pane branch-to-branch diff
+  statusbar.rs         result / error / spinner / search prompt
+  help.rs              `?` overlay
+  confirm.rs           yes/no confirm with focused-button UI
+  input.rs             single-line input popup
+  upstream_picker.rs   remote picker for `u`
 src/git/
-  mod.rs          Repo trait, facade
-  cli.rs          CliRepo (v0.1)
-  types.rs        Branch, Commit, RemoteBranch, Worktree, Diff
+  mod.rs               Repo trait + facade
+  cli.rs               CliRepo
+  types.rs             Branch / RemoteBranch / Worktree / Commit /
+                       BranchDiff
   ops/
-    branches.rs   v0.1
-    remote.rs     v0.2
-    worktree.rs   v0.3
+    branches.rs        list / checkout / create / delete / rename /
+                       set_upstream / checkout_tracking / branch_diff /
+                       merged & worktree augmentation
+    remote.rs          fetch / pull / push / force-with-lease /
+                       delete_branch (push --delete) / no-upstream auto-
+                       set-upstream retry
+    worktree.rs        list / add (with optional -b) / remove
 ```
 
-## 6. Roadmap
+## 7. Roadmap (status)
 
-### v0.2 — Remote operations
+### v0.2 — Remote operations ✓ shipped
 
-| Code | Feature                                            |
-|------|----------------------------------------------------|
-| A2   | List remote branches (Remote tab becomes active)   |
-| A6   | "merged" / "in worktree" markers                   |
-| A7   | Right detail pane (latest commit body + file stats)|
-| B3   | Create branch from arbitrary ref                   |
-| B7   | Set / change upstream                              |
-| C1   | fetch (all / single remote)                        |
-| C2   | pull (ff-only / rebase modes)                      |
-| C3   | push (current / selected)                          |
-| F3   | Sort toggles (recency / name)                      |
-| F4   | Filters (merged / unmerged / stale / author=me)    |
-| G6   | Colour themes                                      |
-| G7   | Config file (`~/.config/bui/config.toml`)          |
-| —    | Layout default flips to `Split(_, Detail)`         |
+| Code | Feature                                            | Status |
+|------|----------------------------------------------------|--------|
+| A2   | List remote branches (Remote tab becomes active)   | ✓      |
+| A6   | "merged" / "in worktree" markers                   | ✓      |
+| A7   | Right detail pane (selected branch metadata)       | ✓      |
+| B3   | Create branch from arbitrary ref (`C`)             | ✓      |
+| B7   | Set / change upstream (`u`)                        | ✓      |
+| C1   | fetch (all / single remote)                        | ✓      |
+| C2   | pull                                               | ✓      |
+| C3   | push                                               | ✓      |
+| F3   | Sort toggle (recency ↔ name) (`s`)                 | ✓      |
+| F4   | Filters (all / merged / unmerged) (`F`)            | ✓ partial — stale & author=me deferred |
+| G6   | Colour themes                                      | ✓      |
+| G7   | Config file (`~/.config/bui/config.toml`)          | ✓      |
+| —    | Layout default flips to `Split(_, Detail)`         | ✓      |
 
-### v0.3 — Worktrees & diff
+### v0.3 — Worktrees, diff, advanced remote ✓ shipped
 
-| Code | Feature                                              |
-|------|------------------------------------------------------|
-| E1   | Worktree list (Worktree tab becomes active)          |
-| E2   | Add worktree for a branch                            |
-| E3   | Remove worktree                                      |
-| E4   | "switch to worktree" — emit `cd` hint for a shell wrapper |
-| A8   | Right pane diff (`A...B` vs current branch)          |
-| C4   | force-with-lease push                                |
-| C5   | Create local tracking branch from remote             |
-| C6   | Delete remote branch (`push --delete`)               |
-| C7   | Prune (`fetch --prune`)                              |
+| Code | Feature                                              | Status |
+|------|------------------------------------------------------|--------|
+| E1   | Worktree list (Worktree tab becomes active)          | ✓      |
+| E2   | Add worktree, optionally creating a new branch off a base (`W`, 2-step) | ✓ |
+| E3   | Remove worktree (`d`)                                | ✓      |
+| E4   | "switch to worktree" — `cd <path>` hint in status    | ✓ (no shell wrapper yet) |
+| A8   | Right-pane diff (`A...B` vs current branch) (`v`)    | ✓      |
+| C4   | force-with-lease push (auto-offered on non-ff)       | ✓      |
+| C5   | Create local tracking branch from remote (`Enter` on Remote) | ✓ |
+| C6   | Delete remote branch (`d` on Remote, push --delete)  | ✓      |
+| C7   | `--prune-tags` (opt-in via config)                   | ✓ — `--prune` itself is always on |
 
 ### v0.4+ — Polish & power features
 
 - F2 fuzzy search (e.g. [`nucleo`](https://github.com/helix-editor/nucleo))
+- F4 stale / author=me predicates (need committerdate-unix + authorname)
 - H1 tags, H2 stash list, H3 reflog viewer
 - H4 per-branch notes / favourites (local persistence)
 - H6 conventional-commit branch naming helper
 - I2 Homebrew tap, I3 man page, I4 shell completions
+- Shell wrapper that turns the Worktree-Enter `cd` hint into a real `cd`
 
-## 7. Decision log
+## 8. Decision log
 
 - **2026-05-14 — Git backend: CLI shell-out.**
   Chose `git` CLI over `git2`/libgit2 because (a) branch operations are
   simple and well served by machine-readable output, (b) the user's git
   config, hooks, and credential helpers Just Work, (c) zero native build
-  deps. Trade-off accepted: fork/exec per op. The `Repo` trait leaves the
-  door open to swap in `git2` if specific ops show measurable cost in
-  large repos.
+  deps.
 
 - **2026-05-14 — No tokio.**
   `std::thread` + `mpsc` is sufficient for shell-out workloads. tokio's
@@ -292,10 +348,44 @@ src/git/
 - **2026-05-14 — Pluggable layout from v0.1.**
   A `LayoutSpec` abstraction is overkill for the v0.1 single-pane UI in
   isolation, but it is cheap to add now and removes the v0.2/v0.3 risk
-  of rewriting the render path. Right pane is reserved by design, not
-  rendered in v0.1.
+  of rewriting the render path.
 
 - **2026-05-14 — Out of scope.**
   merge/rebase/cherry-pick (D), mouse (G8), command palette (G3), PR
-  integration (H5), ahead/behind display (A5), commit graph (A9). Decided
-  during initial scoping; revisit if real demand emerges.
+  integration (H5), ahead/behind display (A5), commit graph (A9).
+
+- **2026-05-15 — Async worker is "one task at a time".**
+  The worker drains `Action`s serially; while `pending_task` is `Some`,
+  another `f`/`p`/`P` is silently ignored rather than queued. Simpler
+  state, predictable order, no head-of-line surprises. If parallelism
+  ever matters (e.g. simultaneous fetches against multiple remotes),
+  this is the place to revisit.
+
+- **2026-05-15 — Push UX: auto-set-upstream + force-with-lease confirm.**
+  First push of a fresh branch silently retries with
+  `--set-upstream origin HEAD` so users don't need to think about it.
+  Non-fast-forward failures open a confirm dialog offering a
+  `--force-with-lease` retry; plain `--force` is intentionally not
+  exposed.
+
+- **2026-05-15 — Upstream picker: remote names only.**
+  Variant B of the picker — bui composes `<remote>/<current-branch>` on
+  submit. Loses the "track a differently-named upstream" case (`local
+  wip/oauth` → `origin/feature/oauth`); that flow remains a `git
+  branch --set-upstream-to=` shell call. Acceptable corner case.
+
+- **2026-05-15 — Worktree path prefill from config.**
+  `[worktree] root = "~/wt"` causes step 2 of `W` to prefill
+  `<root>/<branch>`. Without the config, the fallback is
+  `../wt-<leaf>` (last `/`-segment of the branch). Reduces the common
+  flow to 4 keystrokes.
+
+- **2026-05-15 — Diff pane is a runtime toggle, not a layout variant.**
+  `App.right_pane` (Detail / Diff) is the source of truth; `LayoutSpec`
+  only knows whether the layout is split or single. Lets `v` switch
+  Detail ↔ Diff without re-shaping the layout tree.
+
+- **2026-05-15 — Worktree-Enter is a `cd` hint, not a real cd.**
+  A TUI can't `cd` its parent shell. v0.3 ships the status-bar hint;
+  v0.4+ may ship a shell wrapper (e.g. `bui-cd` zsh function) that
+  reads the last hint and performs the `cd`.
