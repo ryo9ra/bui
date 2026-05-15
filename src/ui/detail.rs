@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::{App, Tab};
-use crate::git::{Branch, RemoteBranch};
+use crate::git::{Branch, RemoteBranch, Worktree};
 
 pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
@@ -29,7 +29,13 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
                 f.render_widget(Paragraph::new("").block(block), area);
             }
         }
-        Tab::Worktree => draw_placeholder(f, area, block, "Worktree details — v0.3"),
+        Tab::Worktree => {
+            if let Some(w) = app.selected_worktree_entry() {
+                draw_worktree_detail(f, area, block, w, app);
+            } else {
+                f.render_widget(Paragraph::new("").block(block), area);
+            }
+        }
     }
 }
 
@@ -144,6 +150,50 @@ fn draw_remote_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &RemoteBra
     );
 }
 
+fn draw_worktree_detail(f: &mut Frame, area: Rect, block: Block<'_>, w: &Worktree, app: &App) {
+    let theme = &app.config.theme;
+    let label = Style::default().fg(Color::DarkGray);
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Path:   ", label),
+            Span::styled(w.path.clone(), Style::default().fg(theme.worktree_tag)),
+        ]),
+        Line::from(vec![
+            Span::styled("  HEAD:   ", label),
+            Span::styled(
+                w.head.chars().take(8).collect::<String>(),
+                Style::default().fg(Color::Yellow),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("  Branch: ", label),
+            Span::raw(
+                w.branch
+                    .clone()
+                    .unwrap_or_else(|| "(detached)".to_string()),
+            ),
+        ]),
+    ];
+    if w.is_current {
+        lines.push(Line::from(vec![
+            Span::styled("  Status: ", label),
+            Span::styled("current", Style::default().fg(theme.current_branch)),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Enter: cd hint  ·  d: remove",
+        label.add_modifier(Modifier::DIM),
+    )));
+
+    f.render_widget(
+        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+#[allow(dead_code)]
 fn draw_placeholder(f: &mut Frame, area: Rect, block: Block<'_>, msg: &str) {
     let body = vec![
         Line::from(""),

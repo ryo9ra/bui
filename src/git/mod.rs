@@ -2,7 +2,7 @@ pub mod cli;
 pub mod ops;
 pub mod types;
 
-pub use types::{Branch, RemoteBranch};
+pub use types::{Branch, RemoteBranch, Worktree};
 
 use anyhow::Result;
 
@@ -22,4 +22,7 @@ pub trait Repo: Send + Sync {
     /// Create local branch `local` tracking `remote_ref` (e.g.
     /// `origin/feature/foo`) and switch to it atomically.
     fn checkout_remote_tracking(&self, local: &str, remote_ref: &str) -> Result<()>;
+    fn list_worktrees(&self) -> Result<Vec<Worktree>>;
+    fn add_worktree(&self, path: &str, branch: &str) -> Result<()>;
+    fn remove_worktree(&self, path: &str) -> Result<()>;
 }

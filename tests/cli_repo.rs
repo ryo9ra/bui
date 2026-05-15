@@ -412,6 +412,45 @@ fn push_sets_upstream_automatically_for_new_branch() {
 }
 
 #[test]
+fn worktree_add_list_remove_roundtrip() {
+    let dir = init_repo();
+    let repo = open(&dir);
+
+    // Initial state: only the main worktree (current).
+    let before = repo.list_worktrees().unwrap();
+    assert_eq!(before.len(), 1);
+    assert!(before[0].is_current);
+    assert_eq!(before[0].branch.as_deref(), Some("main"));
+
+    // Add a branch + worktree pointing at it.
+    repo.create_branch("feature/wt", None).unwrap();
+    let wt_dir = tempfile::tempdir().unwrap();
+    repo.add_worktree(wt_dir.path().to_str().unwrap(), "feature/wt")
+        .unwrap();
+
+    let after_add = repo.list_worktrees().unwrap();
+    assert_eq!(after_add.len(), 2);
+    let added = after_add
+        .iter()
+        .find(|w| w.branch.as_deref() == Some("feature/wt"))
+        .expect("added worktree should be listed");
+    assert!(!added.is_current);
+    // tempfile paths can be symlinked on macOS; check basename.
+    let wt_basename = wt_dir.path().file_name().unwrap().to_str().unwrap();
+    assert!(added.path.contains(wt_basename));
+
+    // Remove and verify it's gone.
+    repo.remove_worktree(&added.path).unwrap();
+    let after_remove = repo.list_worktrees().unwrap();
+    assert_eq!(after_remove.len(), 1);
+    assert!(
+        !after_remove
+            .iter()
+            .any(|w| w.branch.as_deref() == Some("feature/wt"))
+    );
+}
+
+#[test]
 fn checkout_remote_tracking_creates_local_branch_with_upstream() {
     let (work, upstream) = init_work_and_bare_upstream();
 

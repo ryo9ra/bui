@@ -25,6 +25,9 @@ r            (Local) rename selected branch
 d            (Local) delete selected branch (confirm)
 D            (Local) force-delete selected branch (confirm)
 d            (Remote) push --delete the selected remote branch (confirm)
+W            (Local) add worktree for selected branch (prompts path)
+Enter        (Worktree) show `cd <path>` hint in status bar
+d            (Worktree) remove selected worktree (confirm)
 u            (Local) set upstream — pick a remote (e.g. origin)
 /            incremental search (filter by name)
 s            toggle sort: recency ↔ name

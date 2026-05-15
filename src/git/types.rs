@@ -12,6 +12,15 @@ pub struct Branch {
 }
 
 #[derive(Debug, Clone)]
+pub struct Worktree {
+    pub path: String,
+    pub head: String,
+    /// Short branch name (no `refs/heads/` prefix). `None` if detached.
+    pub branch: Option<String>,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct RemoteBranch {
     /// Remote name, e.g. "origin".
     pub remote: String,

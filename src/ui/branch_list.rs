@@ -12,7 +12,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     match app.active_tab {
         Tab::Local => draw_local(f, app, area),
         Tab::Remote => draw_remote(f, app, area),
-        Tab::Worktree => draw_placeholder(f, area, "Worktrees — coming in v0.3"),
+        Tab::Worktree => draw_worktree(f, app, area),
     }
 }
 
@@ -113,6 +113,52 @@ fn draw_remote(f: &mut Frame, app: &App, area: Rect) {
         Constraint::Min(20),
         Constraint::Length(8),
         Constraint::Length(14),
+    ];
+    let table = Table::new(rows, widths).block(Block::default().borders(Borders::NONE));
+    f.render_widget(table, area);
+}
+
+fn draw_worktree(f: &mut Frame, app: &App, area: Rect) {
+    if app.worktrees.is_empty() {
+        draw_placeholder(f, area, "No worktrees.");
+        return;
+    }
+    let theme = &app.config.theme;
+    let rows: Vec<Row> = app
+        .worktrees
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let marker = if w.is_current { "*" } else { " " };
+            let mut style = if w.is_current {
+                Style::default()
+                    .fg(theme.current_branch)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            if i == app.selected_worktree {
+                style = style.add_modifier(Modifier::REVERSED);
+            }
+            let branch = w
+                .branch
+                .clone()
+                .unwrap_or_else(|| "(detached)".to_string());
+            let head_short: String = w.head.chars().take(8).collect();
+            Row::new(vec![
+                Cell::from(marker.to_string()),
+                Cell::from(branch),
+                Cell::from(head_short),
+                Cell::from(w.path.clone()),
+            ])
+            .style(style)
+        })
+        .collect();
+    let widths = [
+        Constraint::Length(1),
+        Constraint::Min(15),
+        Constraint::Length(8),
+        Constraint::Min(20),
     ];
     let table = Table::new(rows, widths).block(Block::default().borders(Borders::NONE));
     f.render_widget(table, area);

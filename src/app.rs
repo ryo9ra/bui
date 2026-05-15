@@ -8,7 +8,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::config::Config;
 use crate::event::{Event, EventChannel, Outcome, TaskId};
-use crate::git::{Branch, RemoteBranch, Repo};
+use crate::git::{Branch, RemoteBranch, Repo, Worktree};
 use crate::task::Action;
 use crate::ui;
 use crate::ui::layout::LayoutSpec;
@@ -22,10 +22,13 @@ pub struct App {
     pub spinner_frame: usize,
     pub local_branches: Vec<Branch>,
     pub remote_branches: Vec<RemoteBranch>,
+    pub worktrees: Vec<Worktree>,
     /// Index into `visible_branches()` (Local tab).
     pub selected: usize,
     /// Index into `visible_remote_branches()` (Remote tab).
     pub selected_remote: usize,
+    /// Index into `worktrees` (Worktree tab).
+    pub selected_worktree: usize,
     pub filter: String,
     pub search_active: bool,
     pub sort_mode: SortMode,
@@ -107,6 +110,7 @@ pub enum InputMode {
     CreateBranch,
     CreateBranchFrom { source: String },
     RenameBranch { old: String },
+    AddWorktree { branch: String },
 }
 
 impl InputState {
@@ -131,6 +135,14 @@ impl InputState {
             prompt: format!("Create branch from '{source}'"),
             value: default_name,
             mode: InputMode::CreateBranchFrom { source },
+        }
+    }
+
+    pub fn add_worktree(branch: String) -> Self {
+        Self {
+            prompt: format!("Worktree path for '{branch}' (~ expands)"),
+            value: String::new(),
+            mode: InputMode::AddWorktree { branch },
         }
     }
 }
@@ -209,6 +221,7 @@ pub enum ConfirmAction {
     DeleteBranch { name: String, force: bool },
     DeleteRemoteBranch { remote: String, branch: String },
     ForceWithLeasePush,
+    RemoveWorktree { path: String },
 }
 
 impl App {
@@ -226,8 +239,10 @@ impl App {
             spinner_frame: 0,
             local_branches: Vec::new(),
             remote_branches: Vec::new(),
+            worktrees: Vec::new(),
             selected: 0,
             selected_remote: 0,
+            selected_worktree: 0,
             filter: String::new(),
             search_active: false,
             sort_mode: SortMode::Recency,
@@ -356,7 +371,7 @@ impl App {
         match self.active_tab {
             Tab::Local => self.visible_branches().len(),
             Tab::Remote => self.visible_remote_branches().len(),
-            Tab::Worktree => 0,
+            Tab::Worktree => self.worktrees.len(),
         }
     }
 
@@ -364,7 +379,7 @@ impl App {
         match self.active_tab {
             Tab::Local => self.selected,
             Tab::Remote => self.selected_remote,
-            Tab::Worktree => 0,
+            Tab::Worktree => self.selected_worktree,
         }
     }
 
@@ -372,7 +387,7 @@ impl App {
         match self.active_tab {
             Tab::Local => self.selected = i,
             Tab::Remote => self.selected_remote = i,
-            Tab::Worktree => {}
+            Tab::Worktree => self.selected_worktree = i,
         }
     }
 
@@ -397,7 +412,17 @@ impl App {
                     .saturating_sub(1);
             }
         }
+        if let Ok(ws) = self.repo.list_worktrees() {
+            self.worktrees = ws;
+            if self.selected_worktree >= self.worktrees.len() {
+                self.selected_worktree = self.worktrees.len().saturating_sub(1);
+            }
+        }
         self.dirty = true;
+    }
+
+    pub fn selected_worktree_entry(&self) -> Option<&Worktree> {
+        self.worktrees.get(self.selected_worktree)
     }
 
     fn refresh_keeping_cursor(&mut self) {
@@ -489,6 +514,11 @@ impl App {
             KeyCode::Char('d') if self.active_tab == Tab::Local => self.request_delete(false),
             KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
             KeyCode::Char('d') if self.active_tab == Tab::Remote => self.request_delete_remote(),
+            KeyCode::Char('d') if self.active_tab == Tab::Worktree => {
+                self.request_remove_worktree();
+            }
+            KeyCode::Char('W') if self.active_tab == Tab::Local => self.open_add_worktree_input(),
+            KeyCode::Enter if self.active_tab == Tab::Worktree => self.show_worktree_cd_hint(),
             KeyCode::Char('f') if self.pending_task.is_none() => {
                 let prune_tags = self.config.fetch.prune_tags;
                 self.dispatch(
@@ -545,6 +575,61 @@ impl App {
                 } else {
                     format!("tracked {remote_ref} as {local_name}")
                 };
+            }
+            Err(e) => self.status = format!("error: {e}"),
+        }
+    }
+
+    fn open_add_worktree_input(&mut self) {
+        let Some(b) = self.selected_branch() else {
+            return;
+        };
+        self.input = Some(InputState::add_worktree(b.name.clone()));
+    }
+
+    fn show_worktree_cd_hint(&mut self) {
+        let Some(w) = self.selected_worktree_entry() else {
+            return;
+        };
+        self.status = format!("cd {}", w.path);
+    }
+
+    fn request_remove_worktree(&mut self) {
+        let Some(w) = self.selected_worktree_entry() else {
+            return;
+        };
+        if w.is_current {
+            self.status = "cannot remove the current worktree".to_string();
+            return;
+        }
+        let path = w.path.clone();
+        self.confirm = Some(ConfirmState {
+            prompt: format!("Remove worktree at '{path}'?"),
+            action: ConfirmAction::RemoveWorktree { path },
+            focus: ConfirmChoice::No,
+        });
+    }
+
+    fn do_remove_worktree(&mut self, path: &str) {
+        match self.repo.remove_worktree(path) {
+            Ok(()) => {
+                self.refresh(None);
+                self.status = format!("removed worktree {path}");
+            }
+            Err(e) => self.status = format!("error: {e}"),
+        }
+    }
+
+    fn do_add_worktree(&mut self, path: &str, branch: &str) {
+        let expanded = expand_tilde(path);
+        match self.repo.add_worktree(&expanded, branch) {
+            Ok(()) => {
+                self.refresh(None);
+                self.active_tab = Tab::Worktree;
+                if let Some(i) = self.worktrees.iter().position(|w| w.path == expanded) {
+                    self.selected_worktree = i;
+                }
+                self.status = format!("added worktree {expanded} for {branch}");
             }
             Err(e) => self.status = format!("error: {e}"),
         }
@@ -717,6 +802,7 @@ impl App {
             ConfirmAction::ForceWithLeasePush => {
                 self.dispatch(Action::PushForceWithLease, "force-with-lease push");
             }
+            ConfirmAction::RemoveWorktree { path } => self.do_remove_worktree(&path),
         }
     }
 
@@ -822,6 +908,7 @@ impl App {
             InputMode::CreateBranch => self.do_create_branch(&value, None),
             InputMode::CreateBranchFrom { source } => self.do_create_branch(&value, Some(&source)),
             InputMode::RenameBranch { old } => self.do_rename_branch(&old, &value),
+            InputMode::AddWorktree { branch } => self.do_add_worktree(&value, &branch),
         }
     }
 
@@ -940,6 +1027,15 @@ impl App {
     }
 }
 
+fn expand_tilde(p: &str) -> String {
+    if let Some(rest) = p.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return format!("{}/{rest}", home.to_string_lossy());
+    }
+    p.to_string()
+}
+
 pub fn run_loop(
     app: &mut App,
     events: &EventChannel,
@@ -1006,6 +1102,15 @@ mod tests {
             Ok(())
         }
         fn checkout_remote_tracking(&self, _: &str, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn list_worktrees(&self) -> anyhow::Result<Vec<Worktree>> {
+            Ok(vec![])
+        }
+        fn add_worktree(&self, _: &str, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn remove_worktree(&self, _: &str) -> anyhow::Result<()> {
             Ok(())
         }
     }
@@ -1666,6 +1771,80 @@ mod tests {
         app.submit_input();
         assert!(app.input.is_none());
         assert!(app.status.contains("created topic from origin/main"));
+    }
+
+    fn wt(path: &str, branch: Option<&str>, is_current: bool) -> Worktree {
+        Worktree {
+            path: path.to_string(),
+            head: "abc1234".to_string(),
+            branch: branch.map(|s| s.to_string()),
+            is_current,
+        }
+    }
+
+    #[test]
+    fn capital_w_on_local_opens_add_worktree_input() {
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('W')));
+        let input = app.input.as_ref().expect("input should be open");
+        match &input.mode {
+            InputMode::AddWorktree { branch } => assert_eq!(branch, "feature/foo"),
+            _ => panic!("expected AddWorktree mode"),
+        }
+        assert_eq!(input.value, "");
+    }
+
+    #[test]
+    fn enter_on_worktree_sets_cd_hint_in_status() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.worktrees = vec![
+            wt("/repo/main", Some("main"), true),
+            wt("/repo/wt-foo", Some("feature/foo"), false),
+        ];
+        app.active_tab = Tab::Worktree;
+        app.selected_worktree = 1;
+        app.on_key(k(KeyCode::Enter));
+        assert_eq!(app.status, "cd /repo/wt-foo");
+    }
+
+    #[test]
+    fn d_on_worktree_opens_confirm_except_for_current() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.worktrees = vec![
+            wt("/repo/main", Some("main"), true),
+            wt("/repo/wt-foo", Some("feature/foo"), false),
+        ];
+        app.active_tab = Tab::Worktree;
+
+        // current worktree -> no confirm, status hint
+        app.selected_worktree = 0;
+        app.on_key(k(KeyCode::Char('d')));
+        assert!(app.confirm.is_none());
+        assert!(app.status.contains("cannot remove the current worktree"));
+
+        // non-current -> confirm opens
+        app.selected_worktree = 1;
+        app.on_key(k(KeyCode::Char('d')));
+        let state = app.confirm.as_ref().expect("confirm should be open");
+        match &state.action {
+            ConfirmAction::RemoveWorktree { path } => {
+                assert_eq!(path, "/repo/wt-foo");
+            }
+            _ => panic!("expected RemoveWorktree"),
+        }
+        assert_eq!(state.focus, ConfirmChoice::No);
+    }
+
+    #[test]
+    fn tilde_expansion_resolves_against_home_env() {
+        // Force HOME for determinism.
+        unsafe {
+            std::env::set_var("HOME", "/tmp/fake-home");
+        }
+        assert_eq!(expand_tilde("~/wt-foo"), "/tmp/fake-home/wt-foo");
+        assert_eq!(expand_tilde("/abs/path"), "/abs/path");
+        assert_eq!(expand_tilde("relative"), "relative");
     }
 
     #[test]
