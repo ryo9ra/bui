@@ -18,6 +18,7 @@ k / ↑        move up
 g / G        jump to top / bottom
 Enter        (Local) checkout selected branch
 c            (Local) create new branch from HEAD
+C            create new branch from selected ref (Local or Remote)
 r            (Local) rename selected branch
 d            (Local) delete selected branch (confirm)
 D            (Local) force-delete selected branch (confirm)

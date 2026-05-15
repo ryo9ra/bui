@@ -61,6 +61,7 @@ pub struct InputState {
 
 pub enum InputMode {
     CreateBranch,
+    CreateBranchFrom { source: String },
     RenameBranch { old: String },
 }
 
@@ -78,6 +79,14 @@ impl InputState {
             prompt: format!("Rename '{old}' to"),
             value: old.clone(),
             mode: InputMode::RenameBranch { old },
+        }
+    }
+
+    pub fn create_branch_from(source: String, default_name: String) -> Self {
+        Self {
+            prompt: format!("Create branch from '{source}'"),
+            value: default_name,
+            mode: InputMode::CreateBranchFrom { source },
         }
     }
 }
@@ -381,6 +390,7 @@ impl App {
             KeyCode::Char('c') if self.active_tab == Tab::Local => {
                 self.input = Some(InputState::create_branch());
             }
+            KeyCode::Char('C') => self.open_create_from_selected(),
             KeyCode::Char('r') if self.active_tab == Tab::Local => {
                 if let Some(old) = self.selected_name() {
                     self.input = Some(InputState::rename_branch(old));
@@ -458,6 +468,28 @@ impl App {
     fn cancel_confirm(&mut self) {
         self.confirm = None;
         self.status = "cancelled".to_string();
+    }
+
+    fn open_create_from_selected(&mut self) {
+        match self.active_tab {
+            Tab::Local => {
+                if let Some(b) = self.selected_branch() {
+                    self.input = Some(InputState::create_branch_from(
+                        b.name.clone(),
+                        String::new(),
+                    ));
+                }
+            }
+            Tab::Remote => {
+                if let Some(r) = self.selected_remote_branch() {
+                    self.input = Some(InputState::create_branch_from(
+                        r.full_name.clone(),
+                        r.name.clone(),
+                    ));
+                }
+            }
+            Tab::Worktree => {}
+        }
     }
 
     fn open_upstream_picker(&mut self) {
@@ -621,16 +653,20 @@ impl App {
             return;
         }
         match input.mode {
-            InputMode::CreateBranch => self.do_create_branch(&value),
+            InputMode::CreateBranch => self.do_create_branch(&value, None),
+            InputMode::CreateBranchFrom { source } => self.do_create_branch(&value, Some(&source)),
             InputMode::RenameBranch { old } => self.do_rename_branch(&old, &value),
         }
     }
 
-    fn do_create_branch(&mut self, name: &str) {
-        match self.repo.create_branch(name, None) {
+    fn do_create_branch(&mut self, name: &str, source: Option<&str>) {
+        match self.repo.create_branch(name, source) {
             Ok(()) => {
                 self.refresh(Some(name));
-                self.status = format!("created {name}");
+                self.status = match source {
+                    Some(src) => format!("created {name} from {src}"),
+                    None => format!("created {name}"),
+                };
             }
             Err(e) => self.status = format!("error: {e}"),
         }
@@ -1219,6 +1255,50 @@ mod tests {
             app.status,
             "set upstream feature/foo -> origin/feature/foo"
         );
+    }
+
+    #[test]
+    fn capital_c_on_local_opens_create_from_input_with_selected_source() {
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('C')));
+        let input = app.input.as_ref().expect("input should be open");
+        match &input.mode {
+            InputMode::CreateBranchFrom { source } => {
+                assert_eq!(source, "feature/foo");
+            }
+            _ => panic!("expected CreateBranchFrom, got something else"),
+        }
+        assert_eq!(input.value, ""); // local: empty default
+    }
+
+    #[test]
+    fn capital_c_on_remote_prefills_default_name() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.remote_branches = vec![remote("origin", "feature/foo")];
+        app.active_tab = Tab::Remote;
+        app.selected_remote = 0;
+        app.on_key(k(KeyCode::Char('C')));
+        let input = app.input.as_ref().expect("input should be open");
+        match &input.mode {
+            InputMode::CreateBranchFrom { source } => {
+                assert_eq!(source, "origin/feature/foo");
+            }
+            _ => panic!("expected CreateBranchFrom"),
+        }
+        assert_eq!(input.value, "feature/foo");
+    }
+
+    #[test]
+    fn submit_create_branch_from_calls_repo_with_source() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.input = Some(InputState::create_branch_from(
+            "origin/main".to_string(),
+            "topic".to_string(),
+        ));
+        app.submit_input();
+        assert!(app.input.is_none());
+        assert!(app.status.contains("created topic from origin/main"));
     }
 
     #[test]
