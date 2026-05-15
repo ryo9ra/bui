@@ -26,6 +26,7 @@ pub struct App {
     pub selected_remote: usize,
     pub filter: String,
     pub search_active: bool,
+    pub sort_mode: SortMode,
     pub status: String,
     pub active_tab: Tab,
     pub modal: Option<Modal>,
@@ -47,6 +48,21 @@ pub enum Tab {
     Local,
     Remote,
     Worktree,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum SortMode {
+    Recency,
+    Name,
+}
+
+impl SortMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            SortMode::Recency => "recency",
+            SortMode::Name => "name",
+        }
+    }
 }
 
 pub enum Modal {
@@ -179,6 +195,7 @@ impl App {
             selected_remote: 0,
             filter: String::new(),
             search_active: false,
+            sort_mode: SortMode::Recency,
             status: "ready".to_string(),
             active_tab: Tab::Local,
             modal: None,
@@ -228,25 +245,35 @@ impl App {
     }
 
     pub fn visible_branches(&self) -> Vec<&Branch> {
-        if self.filter.is_empty() {
-            return self.local_branches.iter().collect();
+        let mut filtered: Vec<&Branch> = if self.filter.is_empty() {
+            self.local_branches.iter().collect()
+        } else {
+            let needle = self.filter.to_lowercase();
+            self.local_branches
+                .iter()
+                .filter(|b| b.name.to_lowercase().contains(&needle))
+                .collect()
+        };
+        if self.sort_mode == SortMode::Name {
+            filtered.sort_by(|a, b| a.name.cmp(&b.name));
         }
-        let needle = self.filter.to_lowercase();
-        self.local_branches
-            .iter()
-            .filter(|b| b.name.to_lowercase().contains(&needle))
-            .collect()
+        filtered
     }
 
     pub fn visible_remote_branches(&self) -> Vec<&RemoteBranch> {
-        if self.filter.is_empty() {
-            return self.remote_branches.iter().collect();
+        let mut filtered: Vec<&RemoteBranch> = if self.filter.is_empty() {
+            self.remote_branches.iter().collect()
+        } else {
+            let needle = self.filter.to_lowercase();
+            self.remote_branches
+                .iter()
+                .filter(|b| b.full_name.to_lowercase().contains(&needle))
+                .collect()
+        };
+        if self.sort_mode == SortMode::Name {
+            filtered.sort_by(|a, b| a.full_name.cmp(&b.full_name));
         }
-        let needle = self.filter.to_lowercase();
-        self.remote_branches
-            .iter()
-            .filter(|b| b.full_name.to_lowercase().contains(&needle))
-            .collect()
+        filtered
     }
 
     pub fn selected_branch(&self) -> Option<&Branch> {
@@ -397,6 +424,7 @@ impl App {
                 }
             }
             KeyCode::Char('/') if self.active_tab != Tab::Worktree => self.start_search(),
+            KeyCode::Char('s') => self.cycle_sort_mode(),
             KeyCode::Esc if !self.filter.is_empty() => self.clear_filter(),
             KeyCode::Char('d') if self.active_tab == Tab::Local => self.request_delete(false),
             KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
@@ -705,6 +733,38 @@ impl App {
         if cur > 0 {
             self.set_current_selected(cur - 1);
         }
+    }
+
+    fn cycle_sort_mode(&mut self) {
+        let prefer = match self.active_tab {
+            Tab::Local => self.selected_branch().map(|b| b.name.clone()),
+            Tab::Remote => self.selected_remote_branch().map(|b| b.full_name.clone()),
+            Tab::Worktree => None,
+        };
+        self.sort_mode = match self.sort_mode {
+            SortMode::Recency => SortMode::Name,
+            SortMode::Name => SortMode::Recency,
+        };
+        if let Some(name) = prefer {
+            match self.active_tab {
+                Tab::Local => {
+                    if let Some(i) = self.visible_branches().iter().position(|b| b.name == name) {
+                        self.selected = i;
+                    }
+                }
+                Tab::Remote => {
+                    if let Some(i) = self
+                        .visible_remote_branches()
+                        .iter()
+                        .position(|b| b.full_name == name)
+                    {
+                        self.selected_remote = i;
+                    }
+                }
+                Tab::Worktree => {}
+            }
+        }
+        self.status = format!("sort: {}", self.sort_mode.label());
     }
 
     fn cycle_tab(&mut self, forward: bool) {
@@ -1255,6 +1315,59 @@ mod tests {
             app.status,
             "set upstream feature/foo -> origin/feature/foo"
         );
+    }
+
+    #[test]
+    fn visible_branches_sorted_by_name_when_mode_is_name() {
+        let mut app = app_with(vec![
+            br("zeta", false),
+            br("alpha", false),
+            br("middle", true),
+        ]);
+        app.sort_mode = SortMode::Name;
+        let names: Vec<_> = app
+            .visible_branches()
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect();
+        assert_eq!(names, ["alpha", "middle", "zeta"]);
+    }
+
+    #[test]
+    fn visible_branches_preserves_recency_order_by_default() {
+        let app = app_with(vec![
+            br("zeta", false),
+            br("alpha", false),
+            br("middle", true),
+        ]);
+        // Recency is the order we put them in (committerdate-desc from git).
+        let names: Vec<_> = app
+            .visible_branches()
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect();
+        assert_eq!(names, ["zeta", "alpha", "middle"]);
+    }
+
+    #[test]
+    fn cycle_sort_mode_toggles_and_preserves_selected_branch() {
+        let mut app = app_with(vec![
+            br("zeta", false),
+            br("alpha", false),
+            br("middle", true),
+        ]);
+        // Cursor on "alpha" (index 1 in recency order).
+        app.selected = 1;
+        app.cycle_sort_mode();
+        assert_eq!(app.sort_mode, SortMode::Name);
+        // After name sort, "alpha" is at index 0.
+        assert_eq!(app.selected, 0);
+        assert!(app.status.contains("name"));
+
+        app.cycle_sort_mode();
+        assert_eq!(app.sort_mode, SortMode::Recency);
+        // Cursor back on "alpha" which is index 1 in recency order.
+        assert_eq!(app.selected, 1);
     }
 
     #[test]

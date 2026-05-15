@@ -10,6 +10,7 @@ use crate::app::{App, Tab};
 
 pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     let active = app.active_tab;
+    let dim = Style::default().fg(Color::DarkGray);
     let line = Line::from(vec![
         tab_span("Local", Tab::Local, active),
         Span::raw(" "),
@@ -17,7 +18,9 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         Span::raw(" "),
         tab_span("Worktree", Tab::Worktree, active),
         Span::raw("   "),
-        Span::styled("bui v0.1", Style::default().fg(Color::DarkGray)),
+        Span::styled(format!("sort: {}", app.sort_mode.label()), dim),
+        Span::raw("   "),
+        Span::styled("bui v0.1", dim),
     ]);
     f.render_widget(Paragraph::new(line), area);
 }
