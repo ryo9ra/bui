@@ -27,6 +27,7 @@ pub struct App {
     pub filter: String,
     pub search_active: bool,
     pub sort_mode: SortMode,
+    pub filter_predicate: FilterPredicate,
     pub status: String,
     pub active_tab: Tab,
     pub modal: Option<Modal>,
@@ -61,6 +62,31 @@ impl SortMode {
         match self {
             SortMode::Recency => "recency",
             SortMode::Name => "name",
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum FilterPredicate {
+    All,
+    Merged,
+    Unmerged,
+}
+
+impl FilterPredicate {
+    pub fn label(self) -> &'static str {
+        match self {
+            FilterPredicate::All => "all",
+            FilterPredicate::Merged => "merged",
+            FilterPredicate::Unmerged => "unmerged",
+        }
+    }
+
+    pub fn matches(self, b: &Branch) -> bool {
+        match self {
+            FilterPredicate::All => true,
+            FilterPredicate::Merged => b.is_merged,
+            FilterPredicate::Unmerged => !b.is_merged,
         }
     }
 }
@@ -196,6 +222,7 @@ impl App {
             filter: String::new(),
             search_active: false,
             sort_mode: SortMode::Recency,
+            filter_predicate: FilterPredicate::All,
             status: "ready".to_string(),
             active_tab: Tab::Local,
             modal: None,
@@ -254,6 +281,7 @@ impl App {
                 .filter(|b| b.name.to_lowercase().contains(&needle))
                 .collect()
         };
+        filtered.retain(|b| self.filter_predicate.matches(b));
         if self.sort_mode == SortMode::Name {
             filtered.sort_by(|a, b| a.name.cmp(&b.name));
         }
@@ -425,6 +453,9 @@ impl App {
             }
             KeyCode::Char('/') if self.active_tab != Tab::Worktree => self.start_search(),
             KeyCode::Char('s') => self.cycle_sort_mode(),
+            KeyCode::Char('F') if self.active_tab == Tab::Local => {
+                self.cycle_filter_predicate();
+            }
             KeyCode::Esc if !self.filter.is_empty() => self.clear_filter(),
             KeyCode::Char('d') if self.active_tab == Tab::Local => self.request_delete(false),
             KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
@@ -733,6 +764,24 @@ impl App {
         if cur > 0 {
             self.set_current_selected(cur - 1);
         }
+    }
+
+    fn cycle_filter_predicate(&mut self) {
+        let prefer = self.selected_branch().map(|b| b.name.clone());
+        self.filter_predicate = match self.filter_predicate {
+            FilterPredicate::All => FilterPredicate::Merged,
+            FilterPredicate::Merged => FilterPredicate::Unmerged,
+            FilterPredicate::Unmerged => FilterPredicate::All,
+        };
+        let visible = self.visible_branches();
+        if let Some(name) = prefer
+            && let Some(i) = visible.iter().position(|b| b.name == name)
+        {
+            self.selected = i;
+        } else if self.selected >= visible.len() {
+            self.selected = visible.len().saturating_sub(1);
+        }
+        self.status = format!("filter: {}", self.filter_predicate.label());
     }
 
     fn cycle_sort_mode(&mut self) {
@@ -1315,6 +1364,69 @@ mod tests {
             app.status,
             "set upstream feature/foo -> origin/feature/foo"
         );
+    }
+
+    fn br_merged(name: &str, current: bool, merged: bool) -> Branch {
+        let mut b = br(name, current);
+        b.is_merged = merged;
+        b
+    }
+
+    #[test]
+    fn visible_branches_filter_predicate_merged() {
+        let mut app = app_with(vec![
+            br_merged("main", true, true),
+            br_merged("feature/done", false, true),
+            br_merged("feature/wip", false, false),
+        ]);
+        app.filter_predicate = FilterPredicate::Merged;
+        let names: Vec<_> = app
+            .visible_branches()
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect();
+        assert_eq!(names, ["main", "feature/done"]);
+    }
+
+    #[test]
+    fn visible_branches_filter_predicate_unmerged() {
+        let mut app = app_with(vec![
+            br_merged("main", true, true),
+            br_merged("feature/done", false, true),
+            br_merged("feature/wip", false, false),
+        ]);
+        app.filter_predicate = FilterPredicate::Unmerged;
+        let names: Vec<_> = app
+            .visible_branches()
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect();
+        assert_eq!(names, ["feature/wip"]);
+    }
+
+    #[test]
+    fn cycle_filter_predicate_walks_all_merged_unmerged() {
+        let mut app = app_with(vec![br_merged("main", true, true)]);
+        assert_eq!(app.filter_predicate, FilterPredicate::All);
+        app.cycle_filter_predicate();
+        assert_eq!(app.filter_predicate, FilterPredicate::Merged);
+        app.cycle_filter_predicate();
+        assert_eq!(app.filter_predicate, FilterPredicate::Unmerged);
+        app.cycle_filter_predicate();
+        assert_eq!(app.filter_predicate, FilterPredicate::All);
+    }
+
+    #[test]
+    fn cycle_filter_predicate_clamps_cursor_when_branch_filtered_out() {
+        let mut app = app_with(vec![
+            br_merged("main", true, true),
+            br_merged("wip", false, false),
+        ]);
+        app.selected = 1; // on "wip"
+        app.cycle_filter_predicate(); // → Merged; "wip" disappears
+        // visible is just ["main"], cursor clamps to 0.
+        assert_eq!(app.selected, 0);
+        assert_eq!(app.filter_predicate, FilterPredicate::Merged);
     }
 
     #[test]

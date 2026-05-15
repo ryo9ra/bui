@@ -25,6 +25,7 @@ D            (Local) force-delete selected branch (confirm)
 u            (Local) set upstream — pick a remote (e.g. origin)
 /            incremental search (filter by name)
 s            toggle sort: recency ↔ name
+F            (Local) cycle filter: all → merged → unmerged → all
 f            fetch all remotes (async)
 p            pull current branch (async)
 P            push current branch (async)

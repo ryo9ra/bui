@@ -18,7 +18,14 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         Span::raw(" "),
         tab_span("Worktree", Tab::Worktree, active),
         Span::raw("   "),
-        Span::styled(format!("sort: {}", app.sort_mode.label()), dim),
+        Span::styled(
+            format!(
+                "sort: {} · filter: {}",
+                app.sort_mode.label(),
+                app.filter_predicate.label()
+            ),
+            dim,
+        ),
         Span::raw("   "),
         Span::styled("bui v0.1", dim),
     ]);
