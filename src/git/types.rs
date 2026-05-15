@@ -5,6 +5,10 @@ pub struct Branch {
     pub short_sha: String,
     pub subject: String,
     pub rel_date: String,
+    /// True if the branch tip is reachable from HEAD.
+    pub is_merged: bool,
+    /// If checked out in another worktree, that worktree's path.
+    pub worktree_path: Option<String>,
 }
 
 #[derive(Debug, Clone)]

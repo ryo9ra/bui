@@ -2,7 +2,8 @@ use ratatui::{
     Frame,
     layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Paragraph, Row, Table},
+    text::{Line, Span},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
 };
 
 use crate::app::{App, Tab};
@@ -40,11 +41,28 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
             if i == app.selected {
                 style = style.add_modifier(Modifier::REVERSED);
             }
+
+            let mut name_spans: Vec<Span<'static>> = vec![Span::raw(b.name.clone())];
+            if b.is_merged && !b.is_current {
+                name_spans.push(Span::styled(
+                    "  merged",
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::DIM),
+                ));
+            }
+            if b.worktree_path.is_some() {
+                name_spans.push(Span::styled(
+                    "  worktree",
+                    Style::default().fg(Color::Cyan),
+                ));
+            }
+
             Row::new(vec![
-                marker.to_string(),
-                b.name.clone(),
-                b.short_sha.clone(),
-                b.rel_date.clone(),
+                Cell::from(marker.to_string()),
+                Cell::from(Line::from(name_spans)),
+                Cell::from(b.short_sha.clone()),
+                Cell::from(b.rel_date.clone()),
             ])
             .style(style)
         })

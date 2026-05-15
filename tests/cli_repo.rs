@@ -55,6 +55,83 @@ fn lists_only_the_initial_branch() {
     assert!(branches[0].is_current);
     assert!(!branches[0].short_sha.is_empty());
     assert_eq!(branches[0].subject, "initial");
+    // HEAD is trivially reachable from HEAD so "main" is flagged merged.
+    assert!(branches[0].is_merged);
+    assert!(branches[0].worktree_path.is_none());
+}
+
+#[test]
+fn marks_merged_branches_reachable_from_head() {
+    let dir = init_repo();
+    let repo = open(&dir);
+    // `merged-topic` was created from main and never advanced — its tip
+    // equals main, so it's trivially reachable from HEAD.
+    repo.create_branch("merged-topic", None).unwrap();
+
+    // `divergent` gets its own commit so its tip is no longer reachable
+    // from main's HEAD.
+    repo.create_branch("divergent", None).unwrap();
+    repo.checkout("divergent").unwrap();
+    commit_on(dir.path(), "extra", "diverge");
+    repo.checkout("main").unwrap();
+
+    let branches = repo.list_local_branches().unwrap();
+    let merged: Vec<&str> = branches
+        .iter()
+        .filter(|b| b.is_merged)
+        .map(|b| b.name.as_str())
+        .collect();
+    assert!(merged.contains(&"merged-topic"), "merged set: {merged:?}");
+    assert!(!merged.contains(&"divergent"), "merged set: {merged:?}");
+}
+
+#[test]
+fn marks_branches_checked_out_in_other_worktrees() {
+    let dir = init_repo();
+    let repo = open(&dir);
+    repo.create_branch("feature/wt", None).unwrap();
+
+    // Park `feature/wt` in a second worktree.
+    let wt_dir = tempfile::tempdir().unwrap();
+    let out = Command::new("git")
+        .current_dir(dir.path())
+        .args([
+            "worktree",
+            "add",
+            wt_dir.path().to_str().unwrap(),
+            "feature/wt",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git worktree add failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let branches = repo.list_local_branches().unwrap();
+    let wt_branch = branches
+        .iter()
+        .find(|b| b.name == "feature/wt")
+        .expect("feature/wt should be listed");
+    let path = wt_branch
+        .worktree_path
+        .as_ref()
+        .expect("worktree path should be set");
+    // tempfile paths can be symlinked (e.g. /var/folders/... → /private/var/...)
+    // on macOS; checking the suffix avoids that resolution mismatch.
+    let wt_basename = wt_dir.path().file_name().unwrap().to_str().unwrap();
+    assert!(
+        path.contains(wt_basename),
+        "worktree path {path} should contain {wt_basename}"
+    );
+
+    // The current worktree's branch (main) should not be flagged.
+    let main = branches
+        .iter()
+        .find(|b| b.name == "main")
+        .expect("main should be listed");
+    assert!(main.worktree_path.is_none());
 }
 
 #[test]

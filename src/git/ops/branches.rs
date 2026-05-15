@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 
@@ -28,7 +29,111 @@ pub fn list_local(workdir: &Path) -> Result<Vec<Branch>> {
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
-    Ok(parse_for_each_ref(&String::from_utf8_lossy(&out.stdout)))
+    let mut branches = parse_for_each_ref(&String::from_utf8_lossy(&out.stdout));
+
+    // Augment with merged + worktree info. Best-effort: a failure of either
+    // side doesn't drop the whole listing.
+    if let Ok(merged) = list_merged_into_head(workdir) {
+        for b in branches.iter_mut() {
+            b.is_merged = merged.contains(&b.name);
+        }
+    }
+    if let Ok(wts) = list_worktree_branches(workdir) {
+        for b in branches.iter_mut() {
+            b.worktree_path = wts.get(&b.name).cloned();
+        }
+    }
+    Ok(branches)
+}
+
+fn list_merged_into_head(workdir: &Path) -> Result<HashSet<String>> {
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args([
+            "for-each-ref",
+            "--merged=HEAD",
+            "--format=%(refname:short)",
+            "refs/heads",
+        ])
+        .output()?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "git for-each-ref --merged failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.trim().to_string())
+        .collect())
+}
+
+fn list_worktree_branches(workdir: &Path) -> Result<HashMap<String, String>> {
+    // Identify the worktree that's "ours" so we don't flag branches we're
+    // currently sitting on as living in "another" worktree.
+    let cur = Command::new("git")
+        .current_dir(workdir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()?;
+    let cur_path = if cur.status.success() {
+        String::from_utf8_lossy(&cur.stdout).trim().to_string()
+    } else {
+        String::new()
+    };
+
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args(["worktree", "list", "--porcelain"])
+        .output()?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "git worktree list failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(parse_worktree_porcelain(
+        &String::from_utf8_lossy(&out.stdout),
+        &cur_path,
+    ))
+}
+
+pub(crate) fn parse_worktree_porcelain(
+    stdout: &str,
+    current_path: &str,
+) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let mut path: Option<String> = None;
+    let mut branch: Option<String> = None;
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            commit_record(&mut map, path.take(), branch.take(), current_path);
+            continue;
+        }
+        if let Some(p) = trimmed.strip_prefix("worktree ") {
+            path = Some(p.to_string());
+        } else if let Some(refn) = trimmed.strip_prefix("branch ") {
+            let name = refn.strip_prefix("refs/heads/").unwrap_or(refn);
+            branch = Some(name.to_string());
+        }
+    }
+    // Trailing record without a blank line.
+    commit_record(&mut map, path, branch, current_path);
+    map
+}
+
+fn commit_record(
+    map: &mut HashMap<String, String>,
+    path: Option<String>,
+    branch: Option<String>,
+    current_path: &str,
+) {
+    if let (Some(p), Some(b)) = (path, branch)
+        && p != current_path
+    {
+        map.insert(b, p);
+    }
 }
 
 pub(crate) fn parse_for_each_ref(stdout: &str) -> Vec<Branch> {
@@ -47,6 +152,8 @@ pub(crate) fn parse_for_each_ref(stdout: &str) -> Vec<Branch> {
             short_sha: parts[2].to_string(),
             rel_date: parts[3].to_string(),
             subject: parts[4].to_string(),
+            is_merged: false,
+            worktree_path: None,
         });
     }
     branches
@@ -270,5 +377,54 @@ origin/main\u{1f}abc\u{1f}2d\u{1f}m\u{1f}
         assert_eq!(bs.len(), 1);
         assert_eq!(bs[0].remote, "upstream");
         assert_eq!(bs[0].name, "release/2024-q4");
+    }
+
+    #[test]
+    fn worktree_parser_extracts_branches_for_other_worktrees() {
+        let porcelain = "\
+worktree /repo/main
+HEAD aaa
+branch refs/heads/main
+
+worktree /repo/wt-feature
+HEAD bbb
+branch refs/heads/feature/foo
+
+worktree /repo/wt-detached
+HEAD ccc
+detached
+";
+        let map = parse_worktree_porcelain(porcelain, "/repo/main");
+        // Current worktree filtered out, detached records have no branch.
+        assert_eq!(map.len(), 1);
+        assert_eq!(
+            map.get("feature/foo"),
+            Some(&"/repo/wt-feature".to_string())
+        );
+        assert!(!map.contains_key("main"));
+    }
+
+    #[test]
+    fn worktree_parser_handles_trailing_record_without_blank_line() {
+        let porcelain = "\
+worktree /repo/main
+HEAD aaa
+branch refs/heads/main
+worktree /repo/wt
+HEAD bbb
+branch refs/heads/foo";
+        let map = parse_worktree_porcelain(porcelain, "/repo/main");
+        assert_eq!(map.get("foo"), Some(&"/repo/wt".to_string()));
+    }
+
+    #[test]
+    fn worktree_parser_returns_empty_when_only_current_worktree() {
+        let porcelain = "\
+worktree /repo/main
+HEAD aaa
+branch refs/heads/main
+";
+        let map = parse_worktree_porcelain(porcelain, "/repo/main");
+        assert!(map.is_empty());
     }
 }

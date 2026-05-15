@@ -756,6 +756,8 @@ mod tests {
             short_sha: "abc1234".to_string(),
             subject: "subject".to_string(),
             rel_date: "1 day ago".to_string(),
+            is_merged: false,
+            worktree_path: None,
         }
     }
 

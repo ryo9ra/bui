@@ -35,7 +35,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_branch_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &Branch) {
     let label = Style::default().fg(Color::DarkGray);
-    let lines = vec![
+    let mut lines = vec![
         Line::from(""),
         Line::from(vec![
             Span::styled("  Branch:  ", label),
@@ -52,15 +52,48 @@ fn draw_branch_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &Branch) {
             Span::styled("  Date:    ", label),
             Span::raw(b.rel_date.clone()),
         ]),
-        Line::from(""),
-        Line::from(Span::styled("  Subject:", label)),
-        Line::from(vec![Span::raw("    "), Span::raw(b.subject.clone())]),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  (full body / author / upstream coming later)",
-            label.add_modifier(Modifier::DIM),
-        )),
     ];
+
+    let mut flags: Vec<Span<'static>> = Vec::new();
+    if b.is_current {
+        flags.push(Span::styled(
+            "current",
+            Style::default().fg(Color::Green),
+        ));
+    }
+    if b.is_merged && !b.is_current {
+        flags.push(Span::styled(
+            "merged",
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    if !flags.is_empty() {
+        let mut row = vec![Span::styled("  Status:  ", label)];
+        for (i, f) in flags.into_iter().enumerate() {
+            if i > 0 {
+                row.push(Span::raw(", "));
+            }
+            row.push(f);
+        }
+        lines.push(Line::from(row));
+    }
+    if let Some(path) = &b.worktree_path {
+        lines.push(Line::from(vec![
+            Span::styled("  Worktree:", label),
+            Span::raw(" "),
+            Span::styled(path.clone(), Style::default().fg(Color::Cyan)),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("  Subject:", label)));
+    lines.push(Line::from(vec![Span::raw("    "), Span::raw(b.subject.clone())]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  (full body / author / upstream coming later)",
+        label.add_modifier(Modifier::DIM),
+    )));
+
     f.render_widget(
         Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
         area,
