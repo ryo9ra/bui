@@ -3,9 +3,12 @@ use std::process::Command;
 
 use anyhow::{Result, anyhow};
 
-pub fn fetch(workdir: &Path, remote: Option<&str>) -> Result<()> {
+pub fn fetch(workdir: &Path, remote: Option<&str>, prune_tags: bool) -> Result<()> {
     let mut cmd = Command::new("git");
     cmd.current_dir(workdir).args(["fetch", "--prune"]);
+    if prune_tags {
+        cmd.arg("--prune-tags");
+    }
     match remote {
         Some(r) => {
             cmd.arg(r);

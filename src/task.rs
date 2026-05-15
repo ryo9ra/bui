@@ -14,7 +14,10 @@ use crate::event::{Event, Outcome, TaskId};
 use crate::git::Repo;
 
 pub enum Action {
-    Fetch { remote: Option<String> },
+    Fetch {
+        remote: Option<String>,
+        prune_tags: bool,
+    },
     Pull,
     Push,
     PushForceWithLease,
@@ -39,8 +42,11 @@ pub fn spawn(
 
 fn execute(repo: &dyn Repo, action: Action) -> Result<Outcome, String> {
     match action {
-        Action::Fetch { remote } => repo
-            .fetch(remote.as_deref())
+        Action::Fetch {
+            remote,
+            prune_tags,
+        } => repo
+            .fetch(remote.as_deref(), prune_tags)
             .map(|_| Outcome::Fetched)
             .map_err(|e| e.to_string()),
         Action::Pull => repo.pull().map(|_| Outcome::Pulled).map_err(|e| e.to_string()),

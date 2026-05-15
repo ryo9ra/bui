@@ -45,8 +45,8 @@ impl Repo for CliRepo {
     fn rename_branch(&self, old: &str, new: &str) -> Result<()> {
         ops::branches::rename(&self.workdir, old, new)
     }
-    fn fetch(&self, remote: Option<&str>) -> Result<()> {
-        ops::remote::fetch(&self.workdir, remote)
+    fn fetch(&self, remote: Option<&str>, prune_tags: bool) -> Result<()> {
+        ops::remote::fetch(&self.workdir, remote, prune_tags)
     }
     fn pull(&self) -> Result<()> {
         ops::remote::pull(&self.workdir)

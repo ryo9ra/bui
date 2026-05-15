@@ -13,7 +13,7 @@ pub trait Repo: Send + Sync {
     fn create_branch(&self, name: &str, from: Option<&str>) -> Result<()>;
     fn delete_branch(&self, name: &str, force: bool) -> Result<()>;
     fn rename_branch(&self, old: &str, new: &str) -> Result<()>;
-    fn fetch(&self, remote: Option<&str>) -> Result<()>;
+    fn fetch(&self, remote: Option<&str>, prune_tags: bool) -> Result<()>;
     fn pull(&self) -> Result<()>;
     fn push(&self) -> Result<()>;
     fn push_force_with_lease(&self) -> Result<()>;

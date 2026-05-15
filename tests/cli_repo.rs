@@ -436,7 +436,7 @@ fn checkout_remote_tracking_creates_local_branch_with_upstream() {
 
     // The bui-side clone fetches and gains the remote-tracking ref.
     let repo = CliRepo::at(work.path().to_path_buf());
-    repo.fetch(None).unwrap();
+    repo.fetch(None, false).unwrap();
     let names_before: Vec<_> = repo
         .list_local_branches()
         .unwrap()
@@ -617,6 +617,71 @@ fn pull_brings_in_commits_pushed_elsewhere() {
 }
 
 #[test]
+fn fetch_with_prune_tags_removes_local_tags_missing_from_remote() {
+    let upstream = init_repo();
+    let clone_dir = tempfile::tempdir().expect("create clone tempdir");
+    let out = Command::new("git")
+        .args([
+            "clone",
+            "-q",
+            upstream.path().to_str().unwrap(),
+            clone_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn git clone");
+    assert!(out.status.success());
+
+    // Plant a tag in the clone that the upstream never had.
+    run_git(clone_dir.path(), &["tag", "local-only"]);
+    let tags_before: Vec<String> = String::from_utf8(
+        Command::new("git")
+            .current_dir(clone_dir.path())
+            .args(["tag", "--list"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .lines()
+    .map(|s| s.to_string())
+    .collect();
+    assert!(tags_before.contains(&"local-only".to_string()));
+
+    let repo = CliRepo::at(clone_dir.path().to_path_buf());
+    // Plain fetch leaves the local-only tag alone.
+    repo.fetch(None, false).unwrap();
+    let tags_mid: Vec<String> = String::from_utf8(
+        Command::new("git")
+            .current_dir(clone_dir.path())
+            .args(["tag", "--list"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .lines()
+    .map(|s| s.to_string())
+    .collect();
+    assert!(tags_mid.contains(&"local-only".to_string()));
+
+    // With prune_tags, the local-only tag is removed.
+    repo.fetch(None, true).unwrap();
+    let tags_after: Vec<String> = String::from_utf8(
+        Command::new("git")
+            .current_dir(clone_dir.path())
+            .args(["tag", "--list"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .lines()
+    .map(|s| s.to_string())
+    .collect();
+    assert!(!tags_after.contains(&"local-only".to_string()));
+}
+
+#[test]
 fn fetch_picks_up_new_upstream_branches() {
     let upstream = init_repo();
     let clone_dir = tempfile::tempdir().expect("create clone tempdir");
@@ -649,7 +714,7 @@ fn fetch_picks_up_new_upstream_branches() {
     assert!(!before.contains(&"newly-added".to_string()));
 
     // After fetch, it should appear.
-    repo.fetch(None).unwrap();
+    repo.fetch(None, false).unwrap();
     let after: Vec<_> = repo
         .list_remote_branches()
         .unwrap()

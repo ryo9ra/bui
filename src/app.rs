@@ -490,7 +490,14 @@ impl App {
             KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
             KeyCode::Char('d') if self.active_tab == Tab::Remote => self.request_delete_remote(),
             KeyCode::Char('f') if self.pending_task.is_none() => {
-                self.dispatch(Action::Fetch { remote: None }, "fetching");
+                let prune_tags = self.config.fetch.prune_tags;
+                self.dispatch(
+                    Action::Fetch {
+                        remote: None,
+                        prune_tags,
+                    },
+                    "fetching",
+                );
             }
             KeyCode::Char('p') if self.pending_task.is_none() => {
                 self.dispatch(Action::Pull, "pulling");
@@ -980,7 +987,7 @@ mod tests {
         fn rename_branch(&self, _: &str, _: &str) -> anyhow::Result<()> {
             Ok(())
         }
-        fn fetch(&self, _: Option<&str>) -> anyhow::Result<()> {
+        fn fetch(&self, _: Option<&str>, _: bool) -> anyhow::Result<()> {
             Ok(())
         }
         fn pull(&self) -> anyhow::Result<()> {
@@ -1286,7 +1293,31 @@ mod tests {
 
         let (id, action) = rx.try_recv().expect("dispatched action");
         assert_eq!(id, 1);
-        assert!(matches!(action, Action::Fetch { remote: None }));
+        assert!(matches!(
+            action,
+            Action::Fetch {
+                remote: None,
+                prune_tags: false
+            }
+        ));
+    }
+
+    #[test]
+    fn pressing_f_with_prune_tags_config_passes_flag_to_worker() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut cfg = Config::default();
+        cfg.fetch.prune_tags = true;
+        let mut app = App::new(Arc::new(NoopRepo), tx, cfg);
+        app.local_branches = vec![br("main", true)];
+        app.on_key(k(KeyCode::Char('f')));
+        let (_, action) = rx.try_recv().expect("dispatched action");
+        assert!(matches!(
+            action,
+            Action::Fetch {
+                remote: None,
+                prune_tags: true
+            }
+        ));
     }
 
     #[test]

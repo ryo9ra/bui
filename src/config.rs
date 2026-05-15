@@ -22,6 +22,16 @@ use serde::Deserialize;
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     pub theme: Theme,
+    pub fetch: FetchConfig,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct FetchConfig {
+    /// Pass `--prune-tags` (in addition to `--prune`) to `git fetch`.
+    /// Off by default: deleting local tags that aren't on the remote can
+    /// surprise users who keep local-only tags. Set to `true` if you only
+    /// keep pushed tags.
+    pub prune_tags: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -82,6 +92,7 @@ fn config_path() -> Option<PathBuf> {
 #[serde(default)]
 struct RawConfig {
     theme: RawTheme,
+    fetch: RawFetch,
 }
 
 #[derive(Default, Deserialize)]
@@ -92,6 +103,12 @@ struct RawTheme {
     merged_tag: Option<String>,
     worktree_tag: Option<String>,
     spinner: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct RawFetch {
+    prune_tags: Option<bool>,
 }
 
 impl RawConfig {
@@ -105,6 +122,9 @@ impl RawConfig {
                 merged_tag: parse_color_or(t.merged_tag.as_deref(), defaults.merged_tag),
                 worktree_tag: parse_color_or(t.worktree_tag.as_deref(), defaults.worktree_tag),
                 spinner: parse_color_or(t.spinner.as_deref(), defaults.spinner),
+            },
+            fetch: FetchConfig {
+                prune_tags: self.fetch.prune_tags.unwrap_or(false),
             },
         }
     }
@@ -205,6 +225,23 @@ mod tests {
     fn malformed_toml_yields_defaults() {
         let c = load_from_str("not = toml = at all");
         assert_eq!(c.theme.current_branch, Color::Green);
+    }
+
+    #[test]
+    fn fetch_section_defaults_to_no_prune_tags() {
+        let c = load_from_str("");
+        assert!(!c.fetch.prune_tags);
+    }
+
+    #[test]
+    fn fetch_prune_tags_can_be_enabled() {
+        let c = load_from_str(
+            r#"
+            [fetch]
+            prune_tags = true
+        "#,
+        );
+        assert!(c.fetch.prune_tags);
     }
 
     #[test]
