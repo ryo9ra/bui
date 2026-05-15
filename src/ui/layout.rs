@@ -8,14 +8,12 @@ pub struct LayoutSpec {
 
 pub enum MainSpec {
     BranchList,
-    #[allow(dead_code)]
-    Split(BranchList, RightPane),
+    /// Left = branch list, right = pane chosen at draw time via
+    /// `App::right_pane`.
+    Split,
 }
 
-#[allow(dead_code)]
-pub struct BranchList;
-
-#[allow(dead_code)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum RightPane {
     Detail,
     Diff,
@@ -32,7 +30,7 @@ impl LayoutSpec {
     pub fn default_layout() -> Self {
         Self {
             tabs: true,
-            main: MainSpec::Split(BranchList, RightPane::Detail),
+            main: MainSpec::Split,
             statusbar: true,
         }
     }
@@ -50,9 +48,7 @@ impl LayoutSpec {
             .split(area);
         let main = chunks[1];
         let main_split = match self.main {
-            MainSpec::Split(_, _) => {
-                // Detail pane is a fixed 40 columns; branch list gets the
-                // rest down to a minimum of 30 to stay readable.
+            MainSpec::Split => {
                 let parts = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Min(30), Constraint::Length(40)])

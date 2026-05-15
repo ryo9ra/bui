@@ -8,10 +8,10 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::config::Config;
 use crate::event::{Event, EventChannel, Outcome, TaskId};
-use crate::git::{Branch, RemoteBranch, Repo, Worktree};
+use crate::git::{Branch, BranchDiff, RemoteBranch, Repo, Worktree};
 use crate::task::Action;
 use crate::ui;
-use crate::ui::layout::LayoutSpec;
+use crate::ui::layout::{LayoutSpec, RightPane};
 
 pub struct App {
     pub repo: Arc<dyn Repo>,
@@ -40,6 +40,10 @@ pub struct App {
     pub confirm: Option<ConfirmState>,
     pub upstream_picker: Option<UpstreamPickerState>,
     pub layout: LayoutSpec,
+    pub right_pane: RightPane,
+    /// Lazily computed and cached when `right_pane == Diff`. Cleared on
+    /// refresh / selection change so it can't go stale.
+    pub branch_diff: Option<BranchDiff>,
     pub should_quit: bool,
     pub dirty: bool,
 }
@@ -293,8 +297,64 @@ impl App {
             confirm: None,
             upstream_picker: None,
             layout: LayoutSpec::default_layout(),
+            right_pane: RightPane::Detail,
+            branch_diff: None,
             should_quit: false,
             dirty: true,
+        }
+    }
+
+    fn toggle_right_pane(&mut self) {
+        self.right_pane = match self.right_pane {
+            RightPane::Detail => RightPane::Diff,
+            RightPane::Diff => RightPane::Detail,
+        };
+        if self.right_pane == RightPane::Diff {
+            self.recompute_branch_diff();
+        } else {
+            self.branch_diff = None;
+        }
+        self.status = match self.right_pane {
+            RightPane::Detail => "right pane: detail".to_string(),
+            RightPane::Diff => "right pane: diff".to_string(),
+        };
+    }
+
+    fn recompute_branch_diff(&mut self) {
+        let Some(target) = self.selected_branch().map(|b| b.name.clone()) else {
+            self.branch_diff = None;
+            return;
+        };
+        let Some(base) = self
+            .local_branches
+            .iter()
+            .find(|b| b.is_current)
+            .map(|b| b.name.clone())
+        else {
+            self.branch_diff = None;
+            return;
+        };
+        if target == base {
+            self.branch_diff = None;
+            return;
+        }
+        match self.repo.branch_diff(&target, &base) {
+            Ok(d) => self.branch_diff = Some(d),
+            Err(_) => self.branch_diff = None,
+        }
+    }
+
+    fn maybe_refresh_branch_diff(&mut self) {
+        if self.right_pane != RightPane::Diff {
+            return;
+        }
+        if self.active_tab != Tab::Local {
+            return;
+        }
+        let target = self.selected_branch().map(|b| b.name.clone());
+        let cur = self.branch_diff.as_ref().map(|d| d.target.clone());
+        if target != cur {
+            self.recompute_branch_diff();
         }
     }
 
@@ -558,6 +618,7 @@ impl App {
             }
             KeyCode::Char('W') if self.active_tab == Tab::Local => self.open_add_worktree_input(),
             KeyCode::Enter if self.active_tab == Tab::Worktree => self.show_worktree_cd_hint(),
+            KeyCode::Char('v') => self.toggle_right_pane(),
             KeyCode::Char('f') if self.pending_task.is_none() => {
                 let prune_tags = self.config.fetch.prune_tags;
                 self.dispatch(
@@ -577,6 +638,7 @@ impl App {
             KeyCode::Char('u') if self.active_tab == Tab::Local => self.open_upstream_picker(),
             _ => {}
         }
+        self.maybe_refresh_branch_diff();
         self.dirty = true;
     }
 
@@ -1199,6 +1261,14 @@ mod tests {
         }
         fn remove_worktree(&self, _: &str) -> anyhow::Result<()> {
             Ok(())
+        }
+        fn branch_diff(&self, target: &str, base: &str) -> anyhow::Result<BranchDiff> {
+            Ok(BranchDiff {
+                target: target.to_string(),
+                base: base.to_string(),
+                ahead: vec![],
+                behind: vec![],
+            })
         }
     }
 
@@ -1962,6 +2032,63 @@ mod tests {
         app.submit_input();
         let input = app.input.as_ref().expect("step 2");
         assert_eq!(input.value, "../wt-foo");
+    }
+
+    #[test]
+    fn v_toggles_right_pane_between_detail_and_diff() {
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        app.selected = 1;
+        assert_eq!(app.right_pane, RightPane::Detail);
+        app.on_key(k(KeyCode::Char('v')));
+        assert_eq!(app.right_pane, RightPane::Diff);
+        app.on_key(k(KeyCode::Char('v')));
+        assert_eq!(app.right_pane, RightPane::Detail);
+    }
+
+    #[test]
+    fn entering_diff_pane_triggers_branch_diff_computation() {
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('v')));
+        // NoopRepo returns an empty diff but with target/base populated.
+        let diff = app.branch_diff.as_ref().expect("diff computed");
+        assert_eq!(diff.target, "feature/foo");
+        assert_eq!(diff.base, "main");
+    }
+
+    #[test]
+    fn diff_against_current_branch_is_empty_no_op() {
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        // Cursor on current → diff suppressed.
+        app.selected = 0;
+        app.on_key(k(KeyCode::Char('v')));
+        assert_eq!(app.right_pane, RightPane::Diff);
+        assert!(app.branch_diff.is_none());
+    }
+
+    #[test]
+    fn moving_cursor_in_diff_mode_recomputes() {
+        let mut app = app_with(vec![
+            br("main", true),
+            br("feature/foo", false),
+            br("feature/bar", false),
+        ]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('v')));
+        assert_eq!(app.branch_diff.as_ref().unwrap().target, "feature/foo");
+        // Move down to feature/bar — diff should swap target.
+        app.on_key(k(KeyCode::Char('j')));
+        assert_eq!(app.branch_diff.as_ref().unwrap().target, "feature/bar");
+    }
+
+    #[test]
+    fn leaving_diff_mode_clears_the_cached_diff() {
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('v')));
+        assert!(app.branch_diff.is_some());
+        app.on_key(k(KeyCode::Char('v')));
+        assert!(app.branch_diff.is_none());
     }
 
     #[test]

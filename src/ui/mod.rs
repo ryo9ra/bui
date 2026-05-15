@@ -23,10 +23,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     match &app.layout.main {
         MainSpec::BranchList => branch_list::draw(f, app, rects.main),
-        MainSpec::Split(_, right) => {
+        MainSpec::Split => {
             if let Some((left, right_area)) = rects.main_split {
                 branch_list::draw(f, app, left);
-                match right {
+                match app.right_pane {
                     RightPane::Detail => detail::draw(f, app, right_area),
                     RightPane::Diff => diff::draw(f, app, right_area),
                 }

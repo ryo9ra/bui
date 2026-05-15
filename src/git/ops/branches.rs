@@ -4,7 +4,7 @@ use std::process::Command;
 
 use anyhow::{Result, anyhow};
 
-use crate::git::{Branch, RemoteBranch};
+use crate::git::{Branch, BranchDiff, Commit, RemoteBranch};
 
 // for-each-ref output is machine-readable. Field separator is \x1f (US).
 const FIELD_SEP: char = '\x1f';
@@ -286,6 +286,53 @@ pub fn checkout_tracking(workdir: &Path, local: &str, remote_ref: &str) -> Resul
     Ok(())
 }
 
+pub fn branch_diff(workdir: &Path, target: &str, base: &str) -> Result<BranchDiff> {
+    let ahead = log_commits(workdir, &format!("{base}..{target}"))?;
+    let behind = log_commits(workdir, &format!("{target}..{base}"))?;
+    Ok(BranchDiff {
+        target: target.to_string(),
+        base: base.to_string(),
+        ahead,
+        behind,
+    })
+}
+
+fn log_commits(workdir: &Path, range: &str) -> Result<Vec<Commit>> {
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args(["log", "--pretty=format:%h\x1f%s", range])
+        .output()?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "git log {range} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim()
+        ));
+    }
+    Ok(parse_commits(&String::from_utf8_lossy(&out.stdout)))
+}
+
+pub(crate) fn parse_commits(stdout: &str) -> Vec<Commit> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(2, '\x1f');
+            let sha = parts.next()?.to_string();
+            let subject = parts.next()?.to_string();
+            if sha.is_empty() {
+                return None;
+            }
+            Some(Commit {
+                short_sha: sha,
+                subject,
+            })
+        })
+        .collect()
+}
+
 pub fn set_upstream(workdir: &Path, branch: &str, upstream: &str) -> Result<()> {
     let out = Command::new("git")
         .current_dir(workdir)
@@ -433,6 +480,26 @@ HEAD bbb
 branch refs/heads/foo";
         let map = parse_worktree_porcelain(porcelain, "/repo/main");
         assert_eq!(map.get("foo"), Some(&"/repo/wt".to_string()));
+    }
+
+    #[test]
+    fn parses_commit_log_lines() {
+        let stdout = "abc1234\u{1f}fix oauth\ndef5678\u{1f}wip: refactor\n";
+        let commits = parse_commits(stdout);
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].short_sha, "abc1234");
+        assert_eq!(commits[0].subject, "fix oauth");
+        assert_eq!(commits[1].short_sha, "def5678");
+        assert_eq!(commits[1].subject, "wip: refactor");
+    }
+
+    #[test]
+    fn parser_skips_lines_missing_the_separator() {
+        let stdout = "valid\u{1f}ok\nbroken\nanother\u{1f}fine\n";
+        let commits = parse_commits(stdout);
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].short_sha, "valid");
+        assert_eq!(commits[1].short_sha, "another");
     }
 
     #[test]

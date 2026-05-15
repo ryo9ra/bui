@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use crate::git::{Branch, RemoteBranch, Repo, Worktree, ops};
+use crate::git::{Branch, BranchDiff, RemoteBranch, Repo, Worktree, ops};
 
 pub struct CliRepo {
     pub workdir: PathBuf,
@@ -74,5 +74,8 @@ impl Repo for CliRepo {
     }
     fn remove_worktree(&self, path: &str) -> Result<()> {
         ops::worktree::remove(&self.workdir, path)
+    }
+    fn branch_diff(&self, target: &str, base: &str) -> Result<BranchDiff> {
+        ops::branches::branch_diff(&self.workdir, target, base)
     }
 }

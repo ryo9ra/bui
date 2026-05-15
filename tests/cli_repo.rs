@@ -412,6 +412,38 @@ fn push_sets_upstream_automatically_for_new_branch() {
 }
 
 #[test]
+fn branch_diff_reports_ahead_and_behind_commits() {
+    let dir = init_repo();
+    let repo = open(&dir);
+
+    // Build two branches that diverge from the initial commit.
+    repo.create_branch("feature/foo", None).unwrap();
+    repo.checkout("feature/foo").unwrap();
+    commit_on(dir.path(), "feature1", "feature commit one");
+    commit_on(dir.path(), "feature2", "feature commit two");
+    repo.checkout("main").unwrap();
+    commit_on(dir.path(), "main-only", "main moved on");
+
+    let diff = repo.branch_diff("feature/foo", "main").unwrap();
+    assert_eq!(diff.target, "feature/foo");
+    assert_eq!(diff.base, "main");
+    assert_eq!(diff.ahead.len(), 2);
+    assert_eq!(diff.ahead[0].subject, "feature commit two");
+    assert_eq!(diff.ahead[1].subject, "feature commit one");
+    assert_eq!(diff.behind.len(), 1);
+    assert_eq!(diff.behind[0].subject, "main moved on");
+}
+
+#[test]
+fn branch_diff_against_same_branch_is_empty() {
+    let dir = init_repo();
+    let repo = open(&dir);
+    let diff = repo.branch_diff("main", "main").unwrap();
+    assert!(diff.ahead.is_empty());
+    assert!(diff.behind.is_empty());
+}
+
+#[test]
 fn worktree_add_creates_new_branch_off_base() {
     let dir = init_repo();
     let repo = open(&dir);

@@ -2,7 +2,7 @@ pub mod cli;
 pub mod ops;
 pub mod types;
 
-pub use types::{Branch, RemoteBranch, Worktree};
+pub use types::{Branch, BranchDiff, Commit, RemoteBranch, Worktree};
 
 use anyhow::Result;
 
@@ -29,4 +29,6 @@ pub trait Repo: Send + Sync {
     /// itself is checked out into the new worktree.
     fn add_worktree(&self, path: &str, base: &str, new_branch: Option<&str>) -> Result<()>;
     fn remove_worktree(&self, path: &str) -> Result<()>;
+    /// Commits unique to each side of `target` vs `base`.
+    fn branch_diff(&self, target: &str, base: &str) -> Result<BranchDiff>;
 }

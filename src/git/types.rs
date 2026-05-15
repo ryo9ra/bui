@@ -12,6 +12,22 @@ pub struct Branch {
 }
 
 #[derive(Debug, Clone)]
+pub struct Commit {
+    pub short_sha: String,
+    pub subject: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BranchDiff {
+    pub target: String,
+    pub base: String,
+    /// Commits in `target` not reachable from `base`.
+    pub ahead: Vec<Commit>,
+    /// Commits in `base` not reachable from `target`.
+    pub behind: Vec<Commit>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Worktree {
     pub path: String,
     pub head: String,
