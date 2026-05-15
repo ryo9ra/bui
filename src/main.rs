@@ -2,7 +2,7 @@ use std::io;
 use std::sync::Arc;
 
 use anyhow::Result;
-use bui::{app, event, git, task};
+use bui::{app, config, event, git, task};
 use bui::git::Repo;
 use crossterm::{
     execute,
@@ -27,10 +27,11 @@ fn main() -> Result<()> {
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+    let cfg = config::load();
     let repo: Arc<dyn Repo> = Arc::new(git::cli::CliRepo::new());
     let (events, _handles) = event::start_event_threads();
     let (task_tx, _worker) = task::spawn(Arc::clone(&repo), events.tx.clone());
-    let mut app = app::App::new(repo, task_tx);
+    let mut app = app::App::new(repo, task_tx, cfg);
     app.refresh(None);
     app::run_loop(&mut app, &events, terminal)
 }

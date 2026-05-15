@@ -20,14 +20,15 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         ])
     } else if let Some(pending) = &app.pending_task {
         let frame = SPINNER[app.spinner_frame % SPINNER.len()];
+        let spinner_color = app.config.theme.spinner;
         Line::from(vec![
             Span::raw(" "),
             Span::styled(
                 frame.to_string(),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default().fg(spinner_color).add_modifier(Modifier::BOLD),
             ),
             Span::raw(" "),
-            Span::styled(pending.desc.clone(), Style::default().fg(Color::Yellow)),
+            Span::styled(pending.desc.clone(), Style::default().fg(spinner_color)),
         ])
     } else {
         Line::from(vec![

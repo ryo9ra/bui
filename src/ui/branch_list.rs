@@ -26,6 +26,7 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
         draw_placeholder(f, area, "No matches.");
         return;
     }
+    let theme = &app.config.theme;
     let rows: Vec<Row> = visible
         .iter()
         .enumerate()
@@ -33,7 +34,7 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
             let marker = if b.is_current { "*" } else { " " };
             let mut style = if b.is_current {
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(theme.current_branch)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -47,14 +48,14 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
                 name_spans.push(Span::styled(
                     "  merged",
                     Style::default()
-                        .fg(Color::DarkGray)
+                        .fg(theme.merged_tag)
                         .add_modifier(Modifier::DIM),
                 ));
             }
             if b.worktree_path.is_some() {
                 name_spans.push(Span::styled(
                     "  worktree",
-                    Style::default().fg(Color::Cyan),
+                    Style::default().fg(theme.worktree_tag),
                 ));
             }
 
@@ -80,7 +81,7 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_remote(f: &mut Frame, app: &App, area: Rect) {
     if app.remote_branches.is_empty() {
-        draw_placeholder(f, area, "No remote branches. Run `git fetch` (C1 coming).");
+        draw_placeholder(f, area, "No remote branches. Run `git fetch` (f) first.");
         return;
     }
     let visible = app.visible_remote_branches();
@@ -88,11 +89,12 @@ fn draw_remote(f: &mut Frame, app: &App, area: Rect) {
         draw_placeholder(f, area, "No matches.");
         return;
     }
+    let theme = &app.config.theme;
     let rows: Vec<Row> = visible
         .iter()
         .enumerate()
         .map(|(i, b)| {
-            let mut style = Style::default().fg(Color::Cyan);
+            let mut style = Style::default().fg(theme.remote_branch);
             if i == app.selected_remote {
                 style = style.add_modifier(Modifier::REVERSED);
             }

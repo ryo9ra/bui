@@ -17,14 +17,14 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     match app.active_tab {
         Tab::Local => {
             if let Some(branch) = app.selected_branch() {
-                draw_branch_detail(f, area, block, branch);
+                draw_branch_detail(f, area, block, branch, app);
             } else {
                 f.render_widget(Paragraph::new("").block(block), area);
             }
         }
         Tab::Remote => {
             if let Some(branch) = app.selected_remote_branch() {
-                draw_remote_detail(f, area, block, branch);
+                draw_remote_detail(f, area, block, branch, app);
             } else {
                 f.render_widget(Paragraph::new("").block(block), area);
             }
@@ -33,7 +33,8 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn draw_branch_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &Branch) {
+fn draw_branch_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &Branch, app: &App) {
+    let theme = &app.config.theme;
     let label = Style::default().fg(Color::DarkGray);
     let mut lines = vec![
         Line::from(""),
@@ -58,13 +59,13 @@ fn draw_branch_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &Branch) {
     if b.is_current {
         flags.push(Span::styled(
             "current",
-            Style::default().fg(Color::Green),
+            Style::default().fg(theme.current_branch),
         ));
     }
     if b.is_merged && !b.is_current {
         flags.push(Span::styled(
             "merged",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme.merged_tag),
         ));
     }
     if !flags.is_empty() {
@@ -81,7 +82,7 @@ fn draw_branch_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &Branch) {
         lines.push(Line::from(vec![
             Span::styled("  Worktree:", label),
             Span::raw(" "),
-            Span::styled(path.clone(), Style::default().fg(Color::Cyan)),
+            Span::styled(path.clone(), Style::default().fg(theme.worktree_tag)),
         ]));
     }
 
@@ -100,7 +101,8 @@ fn draw_branch_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &Branch) {
     );
 }
 
-fn draw_remote_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &RemoteBranch) {
+fn draw_remote_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &RemoteBranch, app: &App) {
+    let theme = &app.config.theme;
     let label = Style::default().fg(Color::DarkGray);
     let lines = vec![
         Line::from(""),
@@ -117,7 +119,7 @@ fn draw_remote_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &RemoteBra
         ]),
         Line::from(vec![
             Span::styled("  Full:    ", label),
-            Span::styled(b.full_name.clone(), Style::default().fg(Color::Cyan)),
+            Span::styled(b.full_name.clone(), Style::default().fg(theme.remote_branch)),
         ]),
         Line::from(vec![
             Span::styled("  SHA:     ", label),

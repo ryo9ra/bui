@@ -6,6 +6,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
+use crate::config::Config;
 use crate::event::{Event, EventChannel, Outcome, TaskId};
 use crate::git::{Branch, RemoteBranch, Repo};
 use crate::task::Action;
@@ -14,6 +15,7 @@ use crate::ui::layout::LayoutSpec;
 
 pub struct App {
     pub repo: Arc<dyn Repo>,
+    pub config: Config,
     pub task_tx: Sender<(TaskId, Action)>,
     pub next_task_id: TaskId,
     pub pending_task: Option<PendingTask>,
@@ -208,9 +210,14 @@ pub enum ConfirmAction {
 }
 
 impl App {
-    pub fn new(repo: Arc<dyn Repo>, task_tx: Sender<(TaskId, Action)>) -> Self {
+    pub fn new(
+        repo: Arc<dyn Repo>,
+        task_tx: Sender<(TaskId, Action)>,
+        config: Config,
+    ) -> Self {
         Self {
             repo,
+            config,
             task_tx,
             next_task_id: 1,
             pending_task: None,
@@ -912,7 +919,7 @@ mod tests {
         // channel; tests that inspect dispatched actions build their own
         // channel directly.
         std::mem::forget(rx);
-        let mut a = App::new(Arc::new(NoopRepo), tx);
+        let mut a = App::new(Arc::new(NoopRepo), tx, Config::default());
         a.local_branches = branches;
         a
     }
@@ -1165,7 +1172,7 @@ mod tests {
     #[test]
     fn pressing_f_dispatches_fetch_with_monotonic_id() {
         let (tx, rx) = std::sync::mpsc::channel();
-        let mut app = App::new(Arc::new(NoopRepo), tx);
+        let mut app = App::new(Arc::new(NoopRepo), tx, Config::default());
         app.local_branches = vec![br("main", true)];
         app.on_key(k(KeyCode::Char('f')));
 
@@ -1181,7 +1188,7 @@ mod tests {
     #[test]
     fn pressing_f_is_ignored_when_already_pending() {
         let (tx, rx) = std::sync::mpsc::channel();
-        let mut app = App::new(Arc::new(NoopRepo), tx);
+        let mut app = App::new(Arc::new(NoopRepo), tx, Config::default());
         app.local_branches = vec![br("main", true)];
         app.on_key(k(KeyCode::Char('f')));
         let first_id = app.pending_task.as_ref().unwrap().id;
