@@ -22,6 +22,7 @@ C            create new branch from selected ref (Local or Remote)
 r            (Local) rename selected branch
 d            (Local) delete selected branch (confirm)
 D            (Local) force-delete selected branch (confirm)
+d            (Remote) push --delete the selected remote branch (confirm)
 u            (Local) set upstream — pick a remote (e.g. origin)
 /            incremental search (filter by name)
 s            toggle sort: recency ↔ name

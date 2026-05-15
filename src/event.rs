@@ -17,6 +17,7 @@ pub enum Outcome {
     Fetched,
     Pulled,
     Pushed,
+    RemoteBranchDeleted { full_name: String },
 }
 
 pub struct EventChannel {

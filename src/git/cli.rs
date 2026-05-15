@@ -57,4 +57,7 @@ impl Repo for CliRepo {
     fn set_upstream(&self, branch: &str, upstream: &str) -> Result<()> {
         ops::branches::set_upstream(&self.workdir, branch, upstream)
     }
+    fn delete_remote_branch(&self, remote: &str, branch: &str) -> Result<()> {
+        ops::remote::delete_branch(&self.workdir, remote, branch)
+    }
 }

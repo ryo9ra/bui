@@ -207,6 +207,7 @@ pub enum ConfirmChoice {
 
 pub enum ConfirmAction {
     DeleteBranch { name: String, force: bool },
+    DeleteRemoteBranch { remote: String, branch: String },
 }
 
 impl App {
@@ -272,6 +273,10 @@ impl App {
             Ok(Outcome::Pushed) => {
                 self.refresh(None);
                 self.status = "pushed".to_string();
+            }
+            Ok(Outcome::RemoteBranchDeleted { full_name }) => {
+                self.refresh(None);
+                self.status = format!("deleted {full_name}");
             }
             Err(e) => self.status = format!("error: {e}"),
         }
@@ -466,6 +471,7 @@ impl App {
             KeyCode::Esc if !self.filter.is_empty() => self.clear_filter(),
             KeyCode::Char('d') if self.active_tab == Tab::Local => self.request_delete(false),
             KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
+            KeyCode::Char('d') if self.active_tab == Tab::Remote => self.request_delete_remote(),
             KeyCode::Char('f') if self.pending_task.is_none() => {
                 self.dispatch(Action::Fetch { remote: None }, "fetching");
             }
@@ -479,6 +485,24 @@ impl App {
             _ => {}
         }
         self.dirty = true;
+    }
+
+    fn request_delete_remote(&mut self) {
+        if self.pending_task.is_some() {
+            self.status = "another op is in progress".to_string();
+            return;
+        }
+        let Some(rb) = self.selected_remote_branch() else {
+            return;
+        };
+        let remote = rb.remote.clone();
+        let branch = rb.name.clone();
+        let full = rb.full_name.clone();
+        self.confirm = Some(ConfirmState {
+            prompt: format!("Delete remote branch '{full}'? (push --delete)"),
+            action: ConfirmAction::DeleteRemoteBranch { remote, branch },
+            focus: ConfirmChoice::No,
+        });
     }
 
     fn request_delete(&mut self, force: bool) {
@@ -617,6 +641,16 @@ impl App {
     fn execute_confirm(&mut self, action: ConfirmAction) {
         match action {
             ConfirmAction::DeleteBranch { name, force } => self.do_delete_branch(&name, force),
+            ConfirmAction::DeleteRemoteBranch { remote, branch } => {
+                let desc = format!("deleting {remote}/{branch}");
+                self.dispatch(
+                    Action::DeleteRemoteBranch {
+                        remote,
+                        branch,
+                    },
+                    desc,
+                );
+            }
         }
     }
 
@@ -899,6 +933,9 @@ mod tests {
         fn set_upstream(&self, _: &str, _: &str) -> anyhow::Result<()> {
             Ok(())
         }
+        fn delete_remote_branch(&self, _: &str, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
     }
 
     fn br(name: &str, current: bool) -> Branch {
@@ -1092,6 +1129,7 @@ mod tests {
                 assert_eq!(name, "foo");
                 assert!(!force);
             }
+            _ => panic!("expected DeleteBranch action"),
         }
     }
 
@@ -1103,6 +1141,7 @@ mod tests {
         let state = app.confirm.as_ref().unwrap();
         match &state.action {
             ConfirmAction::DeleteBranch { force, .. } => assert!(force),
+            _ => panic!("expected DeleteBranch action"),
         }
     }
 
@@ -1531,6 +1570,67 @@ mod tests {
         app.submit_input();
         assert!(app.input.is_none());
         assert!(app.status.contains("created topic from origin/main"));
+    }
+
+    #[test]
+    fn pressing_d_on_remote_tab_opens_confirm() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.remote_branches = vec![remote("origin", "feature/foo")];
+        app.active_tab = Tab::Remote;
+        app.selected_remote = 0;
+        app.on_key(k(KeyCode::Char('d')));
+        let state = app.confirm.as_ref().expect("confirm should be set");
+        assert_eq!(state.focus, ConfirmChoice::No);
+        match &state.action {
+            ConfirmAction::DeleteRemoteBranch { remote, branch } => {
+                assert_eq!(remote, "origin");
+                assert_eq!(branch, "feature/foo");
+            }
+            _ => panic!("expected DeleteRemoteBranch action"),
+        }
+    }
+
+    #[test]
+    fn confirming_remote_delete_dispatches_async_action() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut app = App::new(Arc::new(NoopRepo), tx, Config::default());
+        app.remote_branches = vec![remote("origin", "feature/foo")];
+        app.active_tab = Tab::Remote;
+        app.selected_remote = 0;
+        app.on_key(k(KeyCode::Char('d')));
+        // Move focus to Yes and confirm.
+        app.handle_confirm_key(k(KeyCode::Left));
+        app.handle_confirm_key(k(KeyCode::Enter));
+
+        assert!(app.confirm.is_none());
+        // dispatch() should have queued an async task.
+        let pending = app.pending_task.as_ref().expect("pending task");
+        assert!(pending.desc.contains("origin/feature/foo"));
+        let (_, action) = rx.try_recv().expect("dispatched action");
+        match action {
+            Action::DeleteRemoteBranch { remote, branch } => {
+                assert_eq!(remote, "origin");
+                assert_eq!(branch, "feature/foo");
+            }
+            _ => panic!("expected DeleteRemoteBranch action"),
+        }
+    }
+
+    #[test]
+    fn on_task_result_remote_delete_clears_pending_and_sets_status() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.pending_task = Some(PendingTask {
+            id: 4,
+            desc: "deleting origin/foo".to_string(),
+        });
+        app.on_task_result(
+            4,
+            Ok(Outcome::RemoteBranchDeleted {
+                full_name: "origin/foo".to_string(),
+            }),
+        );
+        assert!(app.pending_task.is_none());
+        assert_eq!(app.status, "deleted origin/foo");
     }
 
     #[test]

@@ -40,6 +40,17 @@ pub fn pull(workdir: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn delete_branch(workdir: &Path, remote: &str, branch: &str) -> Result<()> {
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args(["push", remote, "--delete", branch])
+        .output()?;
+    if !out.status.success() {
+        return Err(anyhow!("{}", first_useful_line(&out.stderr)));
+    }
+    Ok(())
+}
+
 pub fn push(workdir: &Path) -> Result<()> {
     let out = Command::new("git")
         .current_dir(workdir)

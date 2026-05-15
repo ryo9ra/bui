@@ -426,6 +426,49 @@ fn pull_without_upstream_returns_actionable_error() {
 }
 
 #[test]
+fn delete_remote_branch_removes_it_from_upstream() {
+    let (work, upstream) = init_work_and_bare_upstream();
+    let repo = CliRepo::at(work.path().to_path_buf());
+
+    // Create + push a fresh branch so the bare upstream has it.
+    run_git(work.path(), &["checkout", "-q", "-b", "feature/remove-me"]);
+    commit_on(work.path(), "x", "x");
+    run_git(work.path(), &["push", "-q", "-u", "origin", "feature/remove-me"]);
+
+    // Sanity check: it exists on upstream.
+    let before: Vec<String> = String::from_utf8(
+        Command::new("git")
+            .current_dir(upstream.path())
+            .args(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .lines()
+    .map(|s| s.to_string())
+    .collect();
+    assert!(before.contains(&"feature/remove-me".to_string()));
+
+    // Delete via bui.
+    repo.delete_remote_branch("origin", "feature/remove-me").unwrap();
+
+    let after: Vec<String> = String::from_utf8(
+        Command::new("git")
+            .current_dir(upstream.path())
+            .args(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .lines()
+    .map(|s| s.to_string())
+    .collect();
+    assert!(!after.contains(&"feature/remove-me".to_string()));
+}
+
+#[test]
 fn push_propagates_local_commits_to_bare_upstream() {
     let (work, upstream) = init_work_and_bare_upstream();
     let repo = CliRepo::at(work.path().to_path_buf());
