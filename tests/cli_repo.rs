@@ -412,6 +412,39 @@ fn push_sets_upstream_automatically_for_new_branch() {
 }
 
 #[test]
+fn worktree_add_creates_new_branch_off_base() {
+    let dir = init_repo();
+    let repo = open(&dir);
+    let wt_dir = tempfile::tempdir().unwrap();
+
+    // Step 1 of the bui flow: a new branch off main. The trait call
+    // mirrors what App::do_add_worktree dispatches.
+    repo.add_worktree(
+        wt_dir.path().to_str().unwrap(),
+        "main",
+        Some("feature/from-base"),
+    )
+    .unwrap();
+
+    // Both the branch and the worktree should exist.
+    let branches: Vec<_> = repo
+        .list_local_branches()
+        .unwrap()
+        .into_iter()
+        .map(|b| b.name)
+        .collect();
+    assert!(branches.contains(&"feature/from-base".to_string()));
+
+    let wts = repo.list_worktrees().unwrap();
+    let added = wts
+        .iter()
+        .find(|w| w.branch.as_deref() == Some("feature/from-base"))
+        .expect("new-branch worktree should be listed");
+    let wt_basename = wt_dir.path().file_name().unwrap().to_str().unwrap();
+    assert!(added.path.contains(wt_basename));
+}
+
+#[test]
 fn worktree_add_list_remove_roundtrip() {
     let dir = init_repo();
     let repo = open(&dir);
@@ -425,7 +458,7 @@ fn worktree_add_list_remove_roundtrip() {
     // Add a branch + worktree pointing at it.
     repo.create_branch("feature/wt", None).unwrap();
     let wt_dir = tempfile::tempdir().unwrap();
-    repo.add_worktree(wt_dir.path().to_str().unwrap(), "feature/wt")
+    repo.add_worktree(wt_dir.path().to_str().unwrap(), "feature/wt", None)
         .unwrap();
 
     let after_add = repo.list_worktrees().unwrap();

@@ -110,7 +110,16 @@ pub enum InputMode {
     CreateBranch,
     CreateBranchFrom { source: String },
     RenameBranch { old: String },
-    AddWorktree { branch: String },
+    /// Step 1 of the worktree-add flow: pick the new branch name (or leave
+    /// empty to reuse `base`).
+    AddWorktreeName {
+        base: String,
+    },
+    /// Step 2: the path. `new_branch` is `Some` if step 1 entered a name.
+    AddWorktreePath {
+        base: String,
+        new_branch: Option<String>,
+    },
 }
 
 impl InputState {
@@ -138,11 +147,23 @@ impl InputState {
         }
     }
 
-    pub fn add_worktree(branch: String) -> Self {
+    pub fn add_worktree_step_name(base: String) -> Self {
         Self {
-            prompt: format!("Worktree path for '{branch}' (~ expands)"),
+            prompt: format!("New branch off '{base}' (empty = use existing):"),
             value: String::new(),
-            mode: InputMode::AddWorktree { branch },
+            mode: InputMode::AddWorktreeName { base },
+        }
+    }
+
+    pub fn add_worktree_step_path(
+        base: String,
+        new_branch: Option<String>,
+    ) -> Self {
+        let label = new_branch.as_deref().unwrap_or(&base);
+        Self {
+            prompt: format!("Worktree path for '{label}' (~ expands)"),
+            value: String::new(),
+            mode: InputMode::AddWorktreePath { base, new_branch },
         }
     }
 }
@@ -584,7 +605,7 @@ impl App {
         let Some(b) = self.selected_branch() else {
             return;
         };
-        self.input = Some(InputState::add_worktree(b.name.clone()));
+        self.input = Some(InputState::add_worktree_step_name(b.name.clone()));
     }
 
     fn show_worktree_cd_hint(&mut self) {
@@ -620,16 +641,21 @@ impl App {
         }
     }
 
-    fn do_add_worktree(&mut self, path: &str, branch: &str) {
+    fn do_add_worktree(&mut self, path: &str, base: &str, new_branch: Option<&str>) {
         let expanded = expand_tilde(path);
-        match self.repo.add_worktree(&expanded, branch) {
+        match self.repo.add_worktree(&expanded, base, new_branch) {
             Ok(()) => {
                 self.refresh(None);
                 self.active_tab = Tab::Worktree;
                 if let Some(i) = self.worktrees.iter().position(|w| w.path == expanded) {
                     self.selected_worktree = i;
                 }
-                self.status = format!("added worktree {expanded} for {branch}");
+                self.status = match new_branch {
+                    Some(name) => {
+                        format!("added worktree {expanded} on new branch {name} (off {base})")
+                    }
+                    None => format!("added worktree {expanded} for {base}"),
+                };
             }
             Err(e) => self.status = format!("error: {e}"),
         }
@@ -900,15 +926,45 @@ impl App {
             return;
         };
         let value = input.value.trim().to_string();
-        if value.is_empty() {
-            self.status = "input cancelled (empty)".to_string();
-            return;
-        }
+        let empty_cancel = |s: &mut Self| {
+            s.status = "input cancelled (empty)".to_string();
+        };
         match input.mode {
-            InputMode::CreateBranch => self.do_create_branch(&value, None),
-            InputMode::CreateBranchFrom { source } => self.do_create_branch(&value, Some(&source)),
-            InputMode::RenameBranch { old } => self.do_rename_branch(&old, &value),
-            InputMode::AddWorktree { branch } => self.do_add_worktree(&value, &branch),
+            InputMode::CreateBranch => {
+                if value.is_empty() {
+                    empty_cancel(self);
+                    return;
+                }
+                self.do_create_branch(&value, None);
+            }
+            InputMode::CreateBranchFrom { source } => {
+                if value.is_empty() {
+                    empty_cancel(self);
+                    return;
+                }
+                self.do_create_branch(&value, Some(&source));
+            }
+            InputMode::RenameBranch { old } => {
+                if value.is_empty() {
+                    empty_cancel(self);
+                    return;
+                }
+                self.do_rename_branch(&old, &value);
+            }
+            InputMode::AddWorktreeName { base } => {
+                // Step 1 → step 2. Empty value is meaningful here: it means
+                // "reuse the existing base branch, don't create a new one".
+                let new_branch = if value.is_empty() { None } else { Some(value) };
+                self.input =
+                    Some(InputState::add_worktree_step_path(base, new_branch));
+            }
+            InputMode::AddWorktreePath { base, new_branch } => {
+                if value.is_empty() {
+                    empty_cancel(self);
+                    return;
+                }
+                self.do_add_worktree(&value, &base, new_branch.as_deref());
+            }
         }
     }
 
@@ -1107,7 +1163,7 @@ mod tests {
         fn list_worktrees(&self) -> anyhow::Result<Vec<Worktree>> {
             Ok(vec![])
         }
-        fn add_worktree(&self, _: &str, _: &str) -> anyhow::Result<()> {
+        fn add_worktree(&self, _: &str, _: &str, _: Option<&str>) -> anyhow::Result<()> {
             Ok(())
         }
         fn remove_worktree(&self, _: &str) -> anyhow::Result<()> {
@@ -1783,16 +1839,72 @@ mod tests {
     }
 
     #[test]
-    fn capital_w_on_local_opens_add_worktree_input() {
+    fn capital_w_on_local_opens_worktree_name_step() {
         let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
         app.selected = 1;
         app.on_key(k(KeyCode::Char('W')));
         let input = app.input.as_ref().expect("input should be open");
         match &input.mode {
-            InputMode::AddWorktree { branch } => assert_eq!(branch, "feature/foo"),
-            _ => panic!("expected AddWorktree mode"),
+            InputMode::AddWorktreeName { base } => assert_eq!(base, "feature/foo"),
+            _ => panic!("expected AddWorktreeName mode"),
         }
         assert_eq!(input.value, "");
+    }
+
+    #[test]
+    fn empty_name_step_skips_branch_creation_and_advances_to_path() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.selected = 0;
+        app.on_key(k(KeyCode::Char('W')));
+        // Submit step 1 with empty value.
+        app.submit_input();
+        let input = app.input.as_ref().expect("step 2 should be open");
+        match &input.mode {
+            InputMode::AddWorktreePath { base, new_branch } => {
+                assert_eq!(base, "main");
+                assert!(new_branch.is_none());
+            }
+            _ => panic!("expected AddWorktreePath after step 1"),
+        }
+    }
+
+    #[test]
+    fn named_step_carries_new_branch_into_path_step() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.selected = 0;
+        app.on_key(k(KeyCode::Char('W')));
+        if let Some(input) = app.input.as_mut() {
+            input.value = "oauth-wip".to_string();
+        }
+        app.submit_input();
+        let input = app.input.as_ref().expect("step 2 should be open");
+        match &input.mode {
+            InputMode::AddWorktreePath { base, new_branch } => {
+                assert_eq!(base, "main");
+                assert_eq!(new_branch.as_deref(), Some("oauth-wip"));
+            }
+            _ => panic!("expected AddWorktreePath after step 1"),
+        }
+    }
+
+    #[test]
+    fn path_step_submission_completes_the_flow() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.input = Some(InputState::add_worktree_step_path(
+            "main".to_string(),
+            Some("oauth-wip".to_string()),
+        ));
+        if let Some(input) = app.input.as_mut() {
+            input.value = "/tmp/wt".to_string();
+        }
+        app.submit_input();
+        assert!(app.input.is_none());
+        assert_eq!(app.active_tab, Tab::Worktree);
+        assert!(
+            app.status.contains("on new branch oauth-wip"),
+            "status: {}",
+            app.status
+        );
     }
 
     #[test]

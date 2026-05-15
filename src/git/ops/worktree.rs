@@ -28,11 +28,14 @@ pub fn list(workdir: &Path) -> Result<Vec<Worktree>> {
     ))
 }
 
-pub fn add(workdir: &Path, path: &str, branch: &str) -> Result<()> {
-    let out = Command::new("git")
-        .current_dir(workdir)
-        .args(["worktree", "add", path, branch])
-        .output()?;
+pub fn add(workdir: &Path, path: &str, base: &str, new_branch: Option<&str>) -> Result<()> {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(workdir).args(["worktree", "add"]);
+    if let Some(name) = new_branch {
+        cmd.args(["-b", name]);
+    }
+    cmd.args([path, base]);
+    let out = cmd.output()?;
     if !out.status.success() {
         return Err(anyhow!("{}", first_useful_line(&out.stderr)));
     }

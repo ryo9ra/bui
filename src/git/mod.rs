@@ -23,6 +23,10 @@ pub trait Repo: Send + Sync {
     /// `origin/feature/foo`) and switch to it atomically.
     fn checkout_remote_tracking(&self, local: &str, remote_ref: &str) -> Result<()>;
     fn list_worktrees(&self) -> Result<Vec<Worktree>>;
-    fn add_worktree(&self, path: &str, branch: &str) -> Result<()>;
+    /// `base` is the existing ref the worktree should start from. If
+    /// `new_branch` is `Some(name)`, a new branch with that name is created
+    /// off `base` (atomically, via `git worktree add -b`); otherwise `base`
+    /// itself is checked out into the new worktree.
+    fn add_worktree(&self, path: &str, base: &str, new_branch: Option<&str>) -> Result<()>;
     fn remove_worktree(&self, path: &str) -> Result<()>;
 }

@@ -69,8 +69,8 @@ impl Repo for CliRepo {
     fn list_worktrees(&self) -> Result<Vec<Worktree>> {
         ops::worktree::list(&self.workdir)
     }
-    fn add_worktree(&self, path: &str, branch: &str) -> Result<()> {
-        ops::worktree::add(&self.workdir, path, branch)
+    fn add_worktree(&self, path: &str, base: &str, new_branch: Option<&str>) -> Result<()> {
+        ops::worktree::add(&self.workdir, path, base, new_branch)
     }
     fn remove_worktree(&self, path: &str) -> Result<()> {
         ops::worktree::remove(&self.workdir, path)
