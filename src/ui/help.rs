@@ -29,7 +29,8 @@ s            toggle sort: recency ↔ name
 F            (Local) cycle filter: all → merged → unmerged → all
 f            fetch all remotes (async)
 p            pull current branch (async)
-P            push current branch (async)
+P            push current branch (async). On non-fast-forward,
+             bui offers a force-with-lease retry via confirm.
 Tab/BackTab  switch tab (Local · Remote · Worktree)
 R            refresh local + remote
 ?            toggle this help

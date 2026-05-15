@@ -72,7 +72,25 @@ pub fn push(workdir: &Path) -> Result<()> {
         }
         return Err(anyhow!("{}", first_useful_line(&retry.stderr)));
     }
+    // Diverged history: bui can offer a force-with-lease retry, so emit a
+    // stable marker the App can match against in on_task_result.
+    if stderr.contains("non-fast-forward") || stderr.contains("[rejected]") {
+        return Err(anyhow!(
+            "non-fast-forward: remote has diverged"
+        ));
+    }
     Err(anyhow!("{}", first_useful_line(stderr.as_bytes())))
+}
+
+pub fn push_force_with_lease(workdir: &Path) -> Result<()> {
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args(["push", "--force-with-lease"])
+        .output()?;
+    if !out.status.success() {
+        return Err(anyhow!("{}", first_useful_line(&out.stderr)));
+    }
+    Ok(())
 }
 
 /// First non-blank line of `stderr`. Status-bar friendly; the rest gets

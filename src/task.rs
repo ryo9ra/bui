@@ -17,6 +17,7 @@ pub enum Action {
     Fetch { remote: Option<String> },
     Pull,
     Push,
+    PushForceWithLease,
     DeleteRemoteBranch { remote: String, branch: String },
 }
 
@@ -44,6 +45,10 @@ fn execute(repo: &dyn Repo, action: Action) -> Result<Outcome, String> {
             .map_err(|e| e.to_string()),
         Action::Pull => repo.pull().map(|_| Outcome::Pulled).map_err(|e| e.to_string()),
         Action::Push => repo.push().map(|_| Outcome::Pushed).map_err(|e| e.to_string()),
+        Action::PushForceWithLease => repo
+            .push_force_with_lease()
+            .map(|_| Outcome::Pushed)
+            .map_err(|e| e.to_string()),
         Action::DeleteRemoteBranch { remote, branch } => repo
             .delete_remote_branch(&remote, &branch)
             .map(|_| Outcome::RemoteBranchDeleted {

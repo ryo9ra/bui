@@ -208,6 +208,7 @@ pub enum ConfirmChoice {
 pub enum ConfirmAction {
     DeleteBranch { name: String, force: bool },
     DeleteRemoteBranch { remote: String, branch: String },
+    ForceWithLeasePush,
 }
 
 impl App {
@@ -278,9 +279,24 @@ impl App {
                 self.refresh(None);
                 self.status = format!("deleted {full_name}");
             }
-            Err(e) => self.status = format!("error: {e}"),
+            Err(e) => self.handle_task_error(&e),
         }
         self.dirty = true;
+    }
+
+    fn handle_task_error(&mut self, msg: &str) {
+        // Diverged history on a regular push: offer the safer
+        // --force-with-lease retry instead of just surfacing the error.
+        if msg.contains("non-fast-forward") {
+            self.confirm = Some(ConfirmState {
+                prompt: "Remote has diverged. Force-with-lease push?".to_string(),
+                action: ConfirmAction::ForceWithLeasePush,
+                focus: ConfirmChoice::No,
+            });
+            self.status = "diverged — confirm force-with-lease".to_string();
+            return;
+        }
+        self.status = format!("error: {msg}");
     }
 
     pub fn visible_branches(&self) -> Vec<&Branch> {
@@ -651,6 +667,9 @@ impl App {
                     desc,
                 );
             }
+            ConfirmAction::ForceWithLeasePush => {
+                self.dispatch(Action::PushForceWithLease, "force-with-lease push");
+            }
         }
     }
 
@@ -928,6 +947,9 @@ mod tests {
             Ok(())
         }
         fn push(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn push_force_with_lease(&self) -> anyhow::Result<()> {
             Ok(())
         }
         fn set_upstream(&self, _: &str, _: &str) -> anyhow::Result<()> {
@@ -1570,6 +1592,42 @@ mod tests {
         app.submit_input();
         assert!(app.input.is_none());
         assert!(app.status.contains("created topic from origin/main"));
+    }
+
+    #[test]
+    fn on_task_result_non_fast_forward_opens_force_with_lease_confirm() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.pending_task = Some(PendingTask {
+            id: 9,
+            desc: "pushing".to_string(),
+        });
+        app.on_task_result(9, Err("non-fast-forward: remote has diverged".to_string()));
+        assert!(app.pending_task.is_none());
+        let state = app
+            .confirm
+            .as_ref()
+            .expect("confirm should be open after non-ff");
+        assert_eq!(state.focus, ConfirmChoice::No);
+        assert!(matches!(state.action, ConfirmAction::ForceWithLeasePush));
+        assert!(app.status.contains("diverged"));
+    }
+
+    #[test]
+    fn confirming_force_with_lease_dispatches_async_action() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut app = App::new(Arc::new(NoopRepo), tx, Config::default());
+        app.pending_task = Some(PendingTask {
+            id: 1,
+            desc: "pushing".to_string(),
+        });
+        app.on_task_result(1, Err("non-fast-forward: foo".to_string()));
+        app.handle_confirm_key(k(KeyCode::Left));
+        app.handle_confirm_key(k(KeyCode::Enter));
+
+        let (_, action) = rx.try_recv().expect("dispatched action");
+        assert!(matches!(action, Action::PushForceWithLease));
+        let pending = app.pending_task.as_ref().expect("re-pending");
+        assert!(pending.desc.contains("force-with-lease"));
     }
 
     #[test]

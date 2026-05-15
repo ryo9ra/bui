@@ -334,6 +334,43 @@ fn rev_parse(workdir: &Path, refname: &str) -> String {
 }
 
 #[test]
+fn push_reports_non_fast_forward_after_amend() {
+    let (work, _upstream) = init_work_and_bare_upstream();
+    let repo = CliRepo::at(work.path().to_path_buf());
+
+    // Rewrite history so HEAD is no longer a fast-forward of origin/main.
+    std::fs::write(work.path().join("README"), "amended\n").unwrap();
+    run_git(work.path(), &["add", "."]);
+    run_git(work.path(), &["commit", "--amend", "--no-edit", "-q"]);
+
+    let err = repo
+        .push()
+        .expect_err("push should fail after history rewrite");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("non-fast-forward"),
+        "expected the non-fast-forward marker, got: {msg}"
+    );
+}
+
+#[test]
+fn force_with_lease_succeeds_after_local_history_rewrite() {
+    let (work, upstream) = init_work_and_bare_upstream();
+    let repo = CliRepo::at(work.path().to_path_buf());
+
+    let original_sha = rev_parse(upstream.path(), "main");
+    std::fs::write(work.path().join("README"), "amended\n").unwrap();
+    run_git(work.path(), &["add", "."]);
+    run_git(work.path(), &["commit", "--amend", "--no-edit", "-q"]);
+
+    repo.push_force_with_lease().unwrap();
+
+    let new_sha = rev_parse(upstream.path(), "main");
+    assert_ne!(new_sha, original_sha);
+    assert_eq!(new_sha, rev_parse(work.path(), "HEAD"));
+}
+
+#[test]
 fn push_sets_upstream_automatically_for_new_branch() {
     let (work, upstream) = init_work_and_bare_upstream();
     let repo = CliRepo::at(work.path().to_path_buf());
