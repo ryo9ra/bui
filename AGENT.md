@@ -10,19 +10,16 @@ and `docs/spec.md` for the full functional spec and roadmap.
 
 ## Status
 
-**v0.1 complete, v0.2 in progress.** All 14 features in
-`docs/spec.md` § 4.1 are wired. From the v0.2 roadmap (§ 6), the
-following are wired:
+**v0.1 + v0.2 feature-complete.** All 14 v0.1 features (`docs/spec.md`
+§ 4.1) and the 12 v0.2 features (§ 6) are wired:
 
-- A2 Remote tab populated from `refs/remotes`
-- A7 Detail pane on the right
-- B7 Set upstream via the `u` picker
-- C1 fetch / C2 pull / C3 push via async worker thread + spinner
+- A2 Remote tab · A6 merged / in-worktree markers · A7 Detail pane
+- B3 Create from selected ref · B7 Set upstream picker
+- C1 fetch · C2 pull · C3 push (async worker + spinner)
+- F3 Sort toggle (recency ↔ name) · F4 Merged / unmerged filter
+- G6 Customizable theme · G7 TOML config at `~/.config/bui/config.toml`
 
-Remaining v0.2 work: A6 (merged / worktree markers), B3 (create from
-arbitrary ref), F3 (sort), F4 (filters), G6 (themes), G7 (config file).
-
-`cargo test` runs 47 unit + 16 integration = 63 tests. When asked to
+`cargo test` runs 70 unit + 18 integration = 88 tests. When asked to
 add a feature, cross-reference `docs/spec.md` first — if it belongs
 to v0.3 / future, confirm with the user before implementing.
 
