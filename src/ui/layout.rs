@@ -23,6 +23,8 @@ pub struct LayoutRects {
     pub tabs: Rect,
     pub main: Rect,
     pub main_split: Option<(Rect, Rect)>,
+    /// Context-sensitive key hint row, between main and the status bar.
+    pub hint_bar: Rect,
     pub statusbar: Rect,
 }
 
@@ -38,11 +40,13 @@ impl LayoutSpec {
     pub fn compute(&self, area: Rect) -> LayoutRects {
         let tabs_h = if self.tabs { 1 } else { 0 };
         let status_h = if self.statusbar { 1 } else { 0 };
+        let hint_h: u16 = 1;
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(tabs_h),
                 Constraint::Min(1),
+                Constraint::Length(hint_h),
                 Constraint::Length(status_h),
             ])
             .split(area);
@@ -64,7 +68,8 @@ impl LayoutSpec {
             tabs: chunks[0],
             main,
             main_split,
-            statusbar: chunks[2],
+            hint_bar: chunks[2],
+            statusbar: chunks[3],
         }
     }
 }

@@ -3,6 +3,7 @@ pub mod confirm;
 pub mod detail;
 pub mod diff;
 pub mod help;
+pub mod hint_bar;
 pub mod input;
 pub mod layout;
 pub mod statusbar;
@@ -54,6 +55,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             }
         }
     }
+    hint_bar::draw(f, app, rects.hint_bar);
     if app.layout.statusbar {
         statusbar::draw(f, app, rects.statusbar);
     }

@@ -290,7 +290,7 @@ impl App {
             search_active: false,
             sort_mode: SortMode::Recency,
             filter_predicate: FilterPredicate::All,
-            status: "ready".to_string(),
+            status: "? help · Tab tabs · v diff · q quit".to_string(),
             active_tab: Tab::Local,
             modal: None,
             input: None,
