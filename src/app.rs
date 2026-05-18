@@ -2046,6 +2046,53 @@ mod tests {
     }
 
     #[test]
+    fn deleting_last_branch_lands_on_new_last() {
+        // [main(cur), a, b]; cursor on b (the last). Delete b → cursor
+        // should land on a (the new last) — not jump to top.
+        let mut app = app_with(vec![
+            br("main", true),
+            br("a", false),
+            br("b", false),
+        ]);
+        app.selected = 2;
+        // Mutate local_branches directly to simulate the post-delete state
+        // (NoopRepo's delete_branch is a no-op so refresh wouldn't change
+        // anything). Then call fix_selection with prefer = None like
+        // do_delete_branch's refresh path.
+        app.local_branches.retain(|b| b.name != "b");
+        app.fix_selection(None);
+        assert_eq!(app.selected, 1);
+        assert_eq!(app.visible_branches()[app.selected].name, "a");
+    }
+
+    #[test]
+    fn deleting_middle_branch_keeps_cursor_in_place_revealing_next() {
+        // [main(cur), a, b, c]; cursor on b. Delete b → visible is
+        // [main, a, c]; cursor stays at index 2 which is now c.
+        let mut app = app_with(vec![
+            br("main", true),
+            br("a", false),
+            br("b", false),
+            br("c", false),
+        ]);
+        app.selected = 2;
+        app.local_branches.retain(|b| b.name != "b");
+        app.fix_selection(None);
+        assert_eq!(app.selected, 2);
+        assert_eq!(app.visible_branches()[app.selected].name, "c");
+    }
+
+    #[test]
+    fn deleting_only_other_branch_lands_on_current() {
+        let mut app = app_with(vec![br("main", true), br("only", false)]);
+        app.selected = 1;
+        app.local_branches.retain(|b| b.name != "only");
+        app.fix_selection(None);
+        assert_eq!(app.selected, 0);
+        assert_eq!(app.visible_branches()[app.selected].name, "main");
+    }
+
+    #[test]
     fn esc_with_no_filter_or_modal_quits() {
         let mut app = app_with(vec![br("main", true)]);
         app.on_key(k(KeyCode::Esc));
