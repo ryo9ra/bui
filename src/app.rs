@@ -1292,6 +1292,7 @@ mod tests {
             rel_date: "1 day ago".to_string(),
             is_merged: false,
             worktree_path: None,
+            upstream_track: None,
         }
     }
 

@@ -9,6 +9,17 @@ pub struct Branch {
     pub is_merged: bool,
     /// If checked out in another worktree, that worktree's path.
     pub worktree_path: Option<String>,
+    /// Relationship with the configured upstream. `None` means no upstream
+    /// is configured.
+    pub upstream_track: Option<UpstreamTrack>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UpstreamTrack {
+    pub ahead: u32,
+    pub behind: u32,
+    /// True if the upstream ref no longer exists on the remote.
+    pub gone: bool,
 }
 
 #[derive(Debug, Clone)]

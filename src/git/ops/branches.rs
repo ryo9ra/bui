@@ -4,12 +4,15 @@ use std::process::Command;
 
 use anyhow::{Result, anyhow};
 
-use crate::git::{Branch, BranchDiff, Commit, RemoteBranch};
+use crate::git::{Branch, BranchDiff, Commit, RemoteBranch, UpstreamTrack};
 
 // for-each-ref output is machine-readable. Field separator is \x1f (US).
 const FIELD_SEP: char = '\x1f';
+// Seven fields. Subject lives last so it can contain a stray `\x1f`
+// without truncating subsequent fields (splitn caps the split count).
+//   HEAD · name · sha · rel-date · upstream-short · upstream-track · subject
 const FORMAT: &str =
-    "%(HEAD)\x1f%(refname:short)\x1f%(objectname:short)\x1f%(committerdate:relative)\x1f%(contents:subject)";
+    "%(HEAD)\x1f%(refname:short)\x1f%(objectname:short)\x1f%(committerdate:relative)\x1f%(upstream:short)\x1f%(upstream:track)\x1f%(contents:subject)";
 const REMOTE_FORMAT: &str =
     "%(refname:short)\x1f%(objectname:short)\x1f%(committerdate:relative)\x1f%(contents:subject)\x1f%(symref)";
 
@@ -142,21 +145,58 @@ pub(crate) fn parse_for_each_ref(stdout: &str) -> Vec<Branch> {
         if line.is_empty() {
             continue;
         }
-        let parts: Vec<&str> = line.splitn(5, FIELD_SEP).collect();
-        if parts.len() < 5 {
+        let parts: Vec<&str> = line.splitn(7, FIELD_SEP).collect();
+        if parts.len() < 7 {
             continue;
         }
+        let upstream_track = parse_upstream_track(parts[4], parts[5]);
         branches.push(Branch {
             is_current: parts[0].trim() == "*",
             name: parts[1].to_string(),
             short_sha: parts[2].to_string(),
             rel_date: parts[3].to_string(),
-            subject: parts[4].to_string(),
+            subject: parts[6].to_string(),
             is_merged: false,
             worktree_path: None,
+            upstream_track,
         });
     }
     branches
+}
+
+/// Convert the `%(upstream:track)` atom into structured data.
+/// `upstream` is `%(upstream:short)`; an empty value means no upstream is
+/// configured.
+pub(crate) fn parse_upstream_track(upstream: &str, track: &str) -> Option<UpstreamTrack> {
+    if upstream.is_empty() {
+        return None;
+    }
+    let t = track.trim();
+    if t.is_empty() {
+        return Some(UpstreamTrack::default());
+    }
+    if t == "[gone]" {
+        return Some(UpstreamTrack {
+            gone: true,
+            ..Default::default()
+        });
+    }
+    let inner = t.trim_start_matches('[').trim_end_matches(']');
+    let mut ahead = 0u32;
+    let mut behind = 0u32;
+    for part in inner.split(',') {
+        let part = part.trim();
+        if let Some(n) = part.strip_prefix("ahead ") {
+            ahead = n.parse().unwrap_or(0);
+        } else if let Some(n) = part.strip_prefix("behind ") {
+            behind = n.parse().unwrap_or(0);
+        }
+    }
+    Some(UpstreamTrack {
+        ahead,
+        behind,
+        gone: false,
+    })
 }
 
 pub fn list_remote(workdir: &Path) -> Result<Vec<RemoteBranch>> {
@@ -359,22 +399,35 @@ pub fn set_upstream(workdir: &Path, branch: &str, upstream: &str) -> Result<()> 
 mod tests {
     use super::*;
 
+    /// Helper to build a for-each-ref-shaped line with the current 7-field
+    /// format: HEAD · name · sha · rel-date · upstream · track · subject.
+    fn line(
+        head: &str,
+        name: &str,
+        sha: &str,
+        rel: &str,
+        upstream: &str,
+        track: &str,
+        subject: &str,
+    ) -> String {
+        format!("{head}\u{1f}{name}\u{1f}{sha}\u{1f}{rel}\u{1f}{upstream}\u{1f}{track}\u{1f}{subject}\n")
+    }
+
     #[test]
     fn parses_current_branch_marker() {
-        let line = "*\u{1f}main\u{1f}abc1234\u{1f}2 days ago\u{1f}fix oauth\n";
-        let bs = parse_for_each_ref(line);
+        let bs = parse_for_each_ref(&line("*", "main", "abc1234", "2 days ago", "", "", "fix oauth"));
         assert_eq!(bs.len(), 1);
         assert!(bs[0].is_current);
         assert_eq!(bs[0].name, "main");
         assert_eq!(bs[0].short_sha, "abc1234");
         assert_eq!(bs[0].rel_date, "2 days ago");
         assert_eq!(bs[0].subject, "fix oauth");
+        assert!(bs[0].upstream_track.is_none());
     }
 
     #[test]
     fn parses_non_current_branch() {
-        let line = " \u{1f}feature/foo\u{1f}def5678\u{1f}1 hour ago\u{1f}wip\n";
-        let bs = parse_for_each_ref(line);
+        let bs = parse_for_each_ref(&line(" ", "feature/foo", "def5678", "1 hour ago", "", "", "wip"));
         assert_eq!(bs.len(), 1);
         assert!(!bs[0].is_current);
         assert_eq!(bs[0].name, "feature/foo");
@@ -382,8 +435,9 @@ mod tests {
 
     #[test]
     fn parses_multiple_lines_in_order() {
-        let stdout = "*\u{1f}main\u{1f}aaa\u{1f}2d\u{1f}m\n \u{1f}foo\u{1f}bbb\u{1f}1h\u{1f}f\n";
-        let bs = parse_for_each_ref(stdout);
+        let stdout = line("*", "main", "aaa", "2d", "", "", "m")
+            + &line(" ", "foo", "bbb", "1h", "", "", "f");
+        let bs = parse_for_each_ref(&stdout);
         assert_eq!(bs.len(), 2);
         assert_eq!(bs[0].name, "main");
         assert_eq!(bs[1].name, "foo");
@@ -391,18 +445,94 @@ mod tests {
 
     #[test]
     fn skips_blank_and_malformed_lines() {
-        let stdout = "*\u{1f}main\u{1f}aaa\u{1f}2d\u{1f}m\n\n \u{1f}foo\u{1f}bbb\u{1f}\n";
-        let bs = parse_for_each_ref(stdout);
+        let stdout = format!(
+            "{}\n{}",
+            line("*", "main", "aaa", "2d", "", "", "m").trim_end(),
+            "broken"
+        );
+        let bs = parse_for_each_ref(&stdout);
         assert_eq!(bs.len(), 1);
         assert_eq!(bs[0].name, "main");
     }
 
     #[test]
     fn subject_can_contain_the_field_separator() {
-        let line = "*\u{1f}main\u{1f}abc\u{1f}2d\u{1f}has\u{1f}separator\n";
-        let bs = parse_for_each_ref(line);
+        // splitn(7) means the 7th split absorbs any remaining `\x1f` in
+        // the subject — that's why we put subject last in the format.
+        let bs = parse_for_each_ref(&line("*", "main", "abc", "2d", "", "", "has\x1fseparator"));
         assert_eq!(bs.len(), 1);
         assert_eq!(bs[0].subject, "has\u{1f}separator");
+    }
+
+    #[test]
+    fn parses_upstream_ahead_behind() {
+        let bs = parse_for_each_ref(&line(
+            "*",
+            "main",
+            "abc",
+            "2d",
+            "origin/main",
+            "[ahead 3, behind 1]",
+            "msg",
+        ));
+        let t = bs[0].upstream_track.as_ref().unwrap();
+        assert_eq!(t.ahead, 3);
+        assert_eq!(t.behind, 1);
+        assert!(!t.gone);
+    }
+
+    #[test]
+    fn parses_upstream_ahead_only() {
+        let bs = parse_for_each_ref(&line(
+            " ",
+            "feature/foo",
+            "abc",
+            "2d",
+            "origin/feature/foo",
+            "[ahead 2]",
+            "msg",
+        ));
+        let t = bs[0].upstream_track.as_ref().unwrap();
+        assert_eq!(t.ahead, 2);
+        assert_eq!(t.behind, 0);
+    }
+
+    #[test]
+    fn parses_upstream_gone() {
+        let bs = parse_for_each_ref(&line(
+            " ",
+            "old-branch",
+            "abc",
+            "2d",
+            "origin/old-branch",
+            "[gone]",
+            "msg",
+        ));
+        let t = bs[0].upstream_track.as_ref().unwrap();
+        assert!(t.gone);
+    }
+
+    #[test]
+    fn parses_upstream_synced_zero_track() {
+        let bs = parse_for_each_ref(&line(
+            "*",
+            "main",
+            "abc",
+            "2d",
+            "origin/main",
+            "",
+            "msg",
+        ));
+        let t = bs[0].upstream_track.as_ref().unwrap();
+        assert_eq!(t.ahead, 0);
+        assert_eq!(t.behind, 0);
+        assert!(!t.gone);
+    }
+
+    #[test]
+    fn no_upstream_yields_none() {
+        let bs = parse_for_each_ref(&line("*", "wip", "abc", "2d", "", "", "msg"));
+        assert!(bs[0].upstream_track.is_none());
     }
 
     #[test]

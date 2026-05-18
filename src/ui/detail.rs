@@ -91,6 +91,27 @@ fn draw_branch_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &Branch, a
             Span::styled(path.clone(), Style::default().fg(theme.worktree_tag)),
         ]));
     }
+    if let Some(track) = &b.upstream_track {
+        let summary = if track.gone {
+            "(gone)".to_string()
+        } else if track.ahead == 0 && track.behind == 0 {
+            "synced".to_string()
+        } else {
+            format!("↑{} ↓{}", track.ahead, track.behind)
+        };
+        let summary_style = if track.gone {
+            Style::default().fg(Color::Yellow)
+        } else if track.ahead > 0 || track.behind > 0 {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  Upstream:", label),
+            Span::raw(" "),
+            Span::styled(summary, summary_style),
+        ]));
+    }
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("  Subject:", label)));

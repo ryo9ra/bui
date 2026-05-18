@@ -57,6 +57,21 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
                 &b.name,
                 name_budget,
             ))];
+            if let Some(track) = &b.upstream_track {
+                if track.gone {
+                    name_spans.push(Span::styled(
+                        "  (gone)",
+                        Style::default().fg(Color::Yellow),
+                    ));
+                } else if track.ahead > 0 || track.behind > 0 {
+                    let s = match (track.ahead, track.behind) {
+                        (a, 0) => format!("  ↑{a}"),
+                        (0, b) => format!("  ↓{b}"),
+                        (a, b) => format!("  ↑{a}↓{b}"),
+                    };
+                    name_spans.push(Span::styled(s, Style::default().fg(Color::Cyan)));
+                }
+            }
             if b.is_merged && !b.is_current {
                 name_spans.push(Span::styled(
                     "  merged",

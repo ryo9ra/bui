@@ -412,6 +412,36 @@ fn push_sets_upstream_automatically_for_new_branch() {
 }
 
 #[test]
+fn list_local_reports_ahead_behind_against_upstream() {
+    let (work, _upstream) = init_work_and_bare_upstream();
+    let repo = CliRepo::at(work.path().to_path_buf());
+
+    // Make local main diverge: 2 commits locally, no push.
+    commit_on(work.path(), "a", "ahead-1");
+    commit_on(work.path(), "b", "ahead-2");
+
+    let bs = repo.list_local_branches().unwrap();
+    let main = bs.iter().find(|b| b.name == "main").unwrap();
+    let track = main
+        .upstream_track
+        .as_ref()
+        .expect("main should have upstream from clone");
+    assert_eq!(track.ahead, 2);
+    assert_eq!(track.behind, 0);
+    assert!(!track.gone);
+}
+
+#[test]
+fn list_local_reports_no_upstream_for_brand_new_branch() {
+    let dir = init_repo();
+    let repo = open(&dir);
+    repo.create_branch("local-only", None).unwrap();
+    let bs = repo.list_local_branches().unwrap();
+    let local_only = bs.iter().find(|b| b.name == "local-only").unwrap();
+    assert!(local_only.upstream_track.is_none());
+}
+
+#[test]
 fn branch_diff_reports_ahead_and_behind_commits() {
     let dir = init_repo();
     let repo = open(&dir);
