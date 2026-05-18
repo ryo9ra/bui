@@ -10,11 +10,12 @@ The defining constraint: **bui is about branches**, not the whole of git.
 Staging, committing, merging, rebasing, and cherry-picking are out of
 scope (or, at best, delegated to external tools).
 
-## Status (2026-05-15)
+## Status (2026-05-18)
 
-**v0.1 + v0.2 + v0.3 are feature-complete.** Every code in §4.1 and §6
-is wired. `cargo test` runs 131 tests (104 unit + 27 integration). See
-the per-feature checkmarks in §6 below.
+**v0.1 + v0.2 + v0.3 are feature-complete** and a round of UX polish
+landed on 2026-05-18 (see §8). Every code in §4.1 and §6 is wired.
+`cargo test` runs 155 tests (126 unit + 29 integration). See the
+per-feature checkmarks in §6 below.
 
 ## 2. Goals
 
@@ -88,7 +89,8 @@ that tab is active. Unlabelled keys work from anywhere.
 | `R`                 | Refresh local + remote + worktrees              |
 | `?`                 | Toggle help overlay                             |
 | `q`                 | Quit                                            |
-| `Esc`               | Cancel modal / input / clear filter             |
+| `Esc`               | Cancel modal / input / clear filter; with nothing to dismiss, quit |
+| `Ctrl-C`            | Quit immediately (bypasses every modal/popup)   |
 
 ### Branch operations
 
@@ -128,6 +130,20 @@ that tab is active. Unlabelled keys work from anywhere.
 | Key      | Action                                          |
 |----------|-------------------------------------------------|
 | `Ctrl-U` | Clear the input value (readline-style)          |
+
+### Visual feedback
+
+- Local branches with an upstream show their relationship inline:
+  cyan `↑3↓1` / `↑2` / `↓1`, yellow `(gone)` when the upstream ref no
+  longer exists. Synced upstreams stay quiet. The detail pane also
+  carries an `Upstream:` summary line.
+- Branch names and worktree paths longer than the column get
+  **middle-truncated** with `…`; the leaf stays visible.
+- After a successful create / rename / add-worktree, the new row
+  flashes green for ~1.25 s so the change is obviously visible.
+- The row beneath the main pane is a **context hint footer**: dim
+  per-tab quick-reference of the most useful keys. Long lines clip
+  on narrow terminals; the highest-value keys come first.
 
 ### Confirm dialog
 
@@ -197,6 +213,12 @@ Sole implementation: `CliRepo`. Each method spawns `git` via
 `std::process::Command` and parses machine-readable output
 (`for-each-ref --format=…`, `worktree list --porcelain`, `--pretty=format:%h\x1f%s`).
 
+The `for-each-ref` format is 7 fields (HEAD · name · sha · rel-date ·
+upstream-short · upstream-track · subject). Subject lives last so a
+stray `\x1f` in a commit message can't truncate later fields. The
+upstream-short / upstream-track pair feeds `Branch.upstream_track`
+(`Option<UpstreamTrack>`) and powers the ahead/behind badge.
+
 ### 6.3 Layout
 
 ```rust
@@ -262,16 +284,17 @@ src/config.rs          TOML config loader (theme, fetch.prune_tags,
                        worktree.root)
 src/lib.rs             re-export modules for integration tests
 src/ui/
-  mod.rs               top-level layout dispatch
+  mod.rs               top-level layout dispatch + middle_truncate
   layout.rs            LayoutSpec / MainSpec / RightPane
   tabs.rs              Local / Remote / Worktree tab strip + status meta
   branch_list.rs       Local, Remote, Worktree list renderers
   detail.rs            right-pane detail for branches and worktrees
   diff.rs              right-pane branch-to-branch diff
+  hint_bar.rs          per-tab context key footer above status
   statusbar.rs         result / error / spinner / search prompt
   help.rs              `?` overlay
   confirm.rs           yes/no confirm with focused-button UI
-  input.rs             single-line input popup
+  input.rs             single-line input popup (with Ctrl-U clear)
   upstream_picker.rs   remote picker for `u`
 src/git/
   mod.rs               Repo trait + facade
@@ -390,6 +413,33 @@ src/git/
   A TUI can't `cd` its parent shell. v0.3 ships the status-bar hint;
   v0.4+ may ship a shell wrapper (e.g. `bui-cd` zsh function) that
   reads the last hint and performs the `cd`.
+
+- **2026-05-18 — UX polish round 1.**
+  Eight UX gaps closed in one session. Decisions worth keeping:
+
+  - `Esc` with nothing to dismiss is now a quit fallback; `Ctrl-C`
+    is the always-quits universal escape hatch (bypasses every
+    modal). Inside an overlay, `Esc` still closes the overlay first.
+  - Detail pane is `Percentage(40)` instead of fixed `Length(40)`
+    so it scales with the terminal. Branch list keeps a `Min(30)`
+    floor.
+  - Long branch names / worktree paths use **middle truncation**
+    (`feature/…r-1234`) rather than ratatui's default end-trunc,
+    so the identifying leaf stays visible.
+  - A dim **hint footer** sits between the main pane and status
+    bar, showing the most useful keys for the active tab. The
+    startup status line ("? help · Tab tabs · …") doubles as a
+    first-launch nudge.
+  - Local branches show their upstream relationship inline (`↑3↓1`,
+    `(gone)`, hidden when synced) via `%(upstream:short)` +
+    `%(upstream:track)` atoms. No extra git invocation per branch.
+  - Success on create / rename / add-worktree flashes the row
+    green for ~1.25 s (`FlashState` + `FlashKind` on App, ttl
+    decremented in `on_tick`). Checkout / delete / fetch /
+    pull / push do not flash — only "new visible row" verbs.
+  - Cursor after delete uses the existing clamp behaviour
+    ("next adjacent, fallback to new last") — verified by tests,
+    not changed.
 
 - **2026-05-18 — Shell wrapper design locked in as Plan B (explicit
   Enter, no auto-cd from `W`).**

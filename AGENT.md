@@ -10,7 +10,7 @@ and `docs/spec.md` for the full functional spec and roadmap.
 
 ## Status
 
-**v0.1 + v0.2 + v0.3 feature-complete.** All v0.1 / v0.2 / v0.3 roadmap
+**v0.1 + v0.2 + v0.3 feature-complete + UX polish round.** All roadmap
 features in `docs/spec.md` are wired:
 
 - v0.1: A1 / A3 / A4 / B1 / B2 / B4 / B5 / B6 / F1 / G1 / G2 / G4 / G5 / I1
@@ -21,8 +21,11 @@ features in `docs/spec.md` are wired:
   on non-ff) · C5 Remote `Enter` → tracking · C6 remote-branch delete ·
   C7 opt-in `--prune-tags` · E1-E4 Worktree tab (list / add / remove /
   cd hint), with config-driven path prefill
+- UX polish (2026-05-18): Esc / Ctrl-C quit · proportional detail pane
+  · middle-truncated long names · context hint footer · ahead/behind
+  upstream badge · row flash on create/rename/add-worktree
 
-`cargo test` runs 104 unit + 27 integration = 131 tests. When asked to
+`cargo test` runs 126 unit + 29 integration = 155 tests. When asked to
 add a feature, cross-reference `docs/spec.md` first — if it belongs
 to v0.3 / future, confirm with the user before implementing.
 
