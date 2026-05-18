@@ -44,7 +44,8 @@ Tab/BackTab  switch tab (Local · Remote · Worktree)
 R            refresh local + remote
 ?            toggle this help
 q            quit
-Esc          close modal / cancel input / clear filter
+Esc          close modal / cancel input / clear filter — then quit
+Ctrl-C       quit immediately (bypasses modals)
 
 Remote tab: navigation and search work; fetch / pull / push and
 tracking-from-remote are coming.

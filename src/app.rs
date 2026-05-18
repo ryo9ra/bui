@@ -560,6 +560,13 @@ impl App {
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        // Ctrl-C is the universal escape hatch — quits even when a modal,
+        // input, picker, confirm, or search is open. Matches shell
+        // expectations.
+        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+            self.should_quit = true;
+            return;
+        }
         if self.modal.is_some() {
             self.handle_modal_key(key);
             return;
@@ -609,7 +616,11 @@ impl App {
             KeyCode::Char('F') if self.active_tab == Tab::Local => {
                 self.cycle_filter_predicate();
             }
+            // Esc with nothing to dismiss → quit. When a filter is applied
+            // it's cleared first; the user has to press Esc twice to quit
+            // from a filtered view.
             KeyCode::Esc if !self.filter.is_empty() => self.clear_filter(),
+            KeyCode::Esc => self.should_quit = true,
             KeyCode::Char('d') if self.active_tab == Tab::Local => self.request_delete(false),
             KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
             KeyCode::Char('d') if self.active_tab == Tab::Remote => self.request_delete_remote(),
@@ -2032,6 +2043,49 @@ mod tests {
         app.submit_input();
         let input = app.input.as_ref().expect("step 2");
         assert_eq!(input.value, "../wt-foo");
+    }
+
+    #[test]
+    fn esc_with_no_filter_or_modal_quits() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.on_key(k(KeyCode::Esc));
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn esc_with_filter_clears_first_does_not_quit() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.filter = "foo".to_string();
+        app.on_key(k(KeyCode::Esc));
+        assert!(!app.should_quit);
+        assert!(app.filter.is_empty());
+    }
+
+    #[test]
+    fn esc_inside_help_modal_closes_modal_does_not_quit() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.modal = Some(Modal::Help);
+        app.on_key(k(KeyCode::Esc));
+        assert!(app.modal.is_none());
+        assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn ctrl_c_quits_immediately_even_from_inside_a_modal() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.modal = Some(Modal::Help);
+        app.on_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert!(app.should_quit);
+        // Modal stays as-is — Ctrl-C doesn't pretend to gracefully close it,
+        // it just exits.
+    }
+
+    #[test]
+    fn ctrl_c_quits_from_input_state_too() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.input = Some(InputState::create_branch());
+        app.on_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert!(app.should_quit);
     }
 
     #[test]
