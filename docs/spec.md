@@ -330,7 +330,8 @@ src/git/
 - H4 per-branch notes / favourites (local persistence)
 - H6 conventional-commit branch naming helper
 - I2 Homebrew tap, I3 man page, I4 shell completions
-- Shell wrapper that turns the Worktree-Enter `cd` hint into a real `cd`
+- Shell wrapper that turns the Worktree-Enter `cd` hint into a real
+  `cd` (design pre-decided as Plan B — see §8)
 
 ## 8. Decision log
 
@@ -389,3 +390,38 @@ src/git/
   A TUI can't `cd` its parent shell. v0.3 ships the status-bar hint;
   v0.4+ may ship a shell wrapper (e.g. `bui-cd` zsh function) that
   reads the last hint and performs the `cd`.
+
+- **2026-05-18 — Shell wrapper design locked in as Plan B (explicit
+  Enter, no auto-cd from `W`).**
+  Decision is logged now to keep future work resumable. v0.3 ships
+  without it; whoever picks this up implements as follows:
+
+  - **Contract.** bui reads `BUI_CD_TARGET_FILE` at startup. If set,
+    `Enter` on a Worktree row writes the worktree's absolute path to
+    that file (overwriting any prior value) **in addition to** the
+    existing status-bar hint. On clean quit (`q` / `Esc`), the file
+    is left as-is for the wrapper to consume.
+  - **Plan B explicitly, not Plan A.** `W` (add worktree) does **not**
+    auto-set the cd target even when the new worktree lands cleanly.
+    The user must press `Enter` on the new row to confirm intent. This
+    avoids the "I just ran W to look around and accidentally got
+    teleported" failure mode and keeps `Enter` as the single, explicit
+    "I want to go here" verb.
+  - **Per-press latching.** Each `Enter` overwrites the target file.
+    If the user picks A, then B, then quits, B wins. If they pick A
+    and then navigate away without re-pressing Enter, A still wins.
+    Suitable for the typical "open bui → pick or create wt → quit
+    there" flow.
+  - **Suggested wrapper** (zsh / bash equivalent):
+    ```sh
+    bui() {
+        local target_file="$(mktemp)"
+        BUI_CD_TARGET_FILE="$target_file" command bui "$@"
+        local target=$(cat "$target_file" 2>/dev/null)
+        rm -f "$target_file"
+        [ -n "$target" ] && [ -d "$target" ] && cd "$target"
+    }
+    ```
+  - **Out of scope for the wrapper feature.** Multi-step "cd to bui's
+    suggestion then back" flows; integration with `direnv`; explicit
+    `:cd <path>` command palette. Revisit if demand emerges.
