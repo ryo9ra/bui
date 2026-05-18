@@ -385,9 +385,23 @@ impl App {
         if self.active_tab != Tab::Local {
             return;
         }
+        // What the cached diff *should* be: Some((target, base)) when the
+        // selection differs from the current branch, None otherwise.
         let target = self.selected_branch().map(|b| b.name.clone());
-        let cur = self.branch_diff.as_ref().map(|d| d.target.clone());
-        if target != cur {
+        let base = self
+            .local_branches
+            .iter()
+            .find(|b| b.is_current)
+            .map(|b| b.name.clone());
+        let want: Option<(String, String)> = match (target, base) {
+            (Some(t), Some(b)) if t != b => Some((t, b)),
+            _ => None,
+        };
+        let have: Option<(String, String)> = self
+            .branch_diff
+            .as_ref()
+            .map(|d| (d.target.clone(), d.base.clone()));
+        if want != have {
             self.recompute_branch_diff();
         }
     }
@@ -428,6 +442,14 @@ impl App {
                 self.status = format!("deleted {full_name}");
             }
             Err(e) => self.handle_task_error(&e),
+        }
+        // Pull / fetch can advance HEAD, which means the cached diff is
+        // potentially stale even though target/base names didn't change.
+        // The next event will catch (target, base) drift, but force a
+        // recompute here too for the common "press p / wait for spinner /
+        // look at diff" flow.
+        if self.right_pane == RightPane::Diff && self.branch_diff.is_some() {
+            self.recompute_branch_diff();
         }
         self.dirty = true;
     }
@@ -2365,6 +2387,51 @@ mod tests {
         // Move cursor — diff recomputes, scroll resets.
         app.on_key(k(KeyCode::Char('j')));
         assert_eq!(app.diff_scroll, 0);
+    }
+
+    #[test]
+    fn checkout_in_diff_mode_invalidates_stale_cache() {
+        // Setup: cursor on feature/foo, v pressed, cache has
+        // {target: feature/foo, base: main}. Then user simulates a
+        // checkout via direct state flip (current branch changes from
+        // main → feature/foo). After the next key event, the cache should
+        // be invalidated because target == base now.
+        let mut app = app_with(vec![
+            br("main", true),
+            br("feature/foo", false),
+        ]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('v')));
+        let cached = app.branch_diff.as_ref().expect("diff after v");
+        assert_eq!(cached.target, "feature/foo");
+        assert_eq!(cached.base, "main");
+
+        // Simulate the post-checkout state: feature/foo is now current.
+        for b in app.local_branches.iter_mut() {
+            b.is_current = b.name == "feature/foo";
+        }
+        // Any subsequent key with state-change hooks at the end runs
+        // maybe_refresh_branch_diff. Pick a no-op key (refresh).
+        app.on_key(k(KeyCode::Char('R')));
+        assert!(
+            app.branch_diff.is_none(),
+            "cache should be cleared once selected == current"
+        );
+    }
+
+    #[test]
+    fn cursor_move_to_a_different_target_recomputes_diff() {
+        // Regression for "cursor moves but pane doesn't update".
+        let mut app = app_with(vec![
+            br("main", true),
+            br("feature/foo", false),
+            br("feature/bar", false),
+        ]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('v')));
+        assert_eq!(app.branch_diff.as_ref().unwrap().target, "feature/foo");
+        app.on_key(k(KeyCode::Char('j')));
+        assert_eq!(app.branch_diff.as_ref().unwrap().target, "feature/bar");
     }
 
     #[test]
