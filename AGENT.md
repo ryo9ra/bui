@@ -24,8 +24,12 @@ features in `docs/spec.md` are wired:
 - UX polish (2026-05-18): Esc / Ctrl-C quit · proportional detail pane
   · middle-truncated long names · context hint footer · ahead/behind
   upstream badge · row flash on create/rename/add-worktree
+- A8 extension (2026-05-18): Diff pane renders the full unified
+  patch with classified colour + `Ctrl-D` / `Ctrl-U` scroll; cache
+  invalidation keys off the (target, base) tuple so checkout / pull
+  stay in sync.
 
-`cargo test` runs 126 unit + 29 integration = 155 tests. When asked to
+`cargo test` runs 135 unit + 30 integration = 165 tests. When asked to
 add a feature, cross-reference `docs/spec.md` first — if it belongs
 to v0.3 / future, confirm with the user before implementing.
 

@@ -13,9 +13,11 @@ scope (or, at best, delegated to external tools).
 ## Status (2026-05-18)
 
 **v0.1 + v0.2 + v0.3 are feature-complete** and a round of UX polish
-landed on 2026-05-18 (see §8). Every code in §4.1 and §6 is wired.
-`cargo test` runs 155 tests (126 unit + 29 integration). See the
-per-feature checkmarks in §6 below.
+landed on 2026-05-18 (see §8). The diff pane (A8) was also extended
+the same day to render the full unified-diff patch with scroll,
+replacing the earlier commit-list-only view. Every code in §4.1 and
+§6 is wired. `cargo test` runs 165 tests (135 unit + 30 integration).
+See the per-feature checkmarks in §6 below.
 
 ## 2. Goals
 
@@ -124,6 +126,7 @@ that tab is active. Unlabelled keys work from anywhere.
 | `s`   | Toggle sort (recency ↔ name)                                    |
 | `F`   | (Local) cycle filter (all → merged → unmerged → all)            |
 | `v`   | Toggle right pane (detail ↔ diff vs current branch)             |
+| `Ctrl-D` / `Ctrl-U` | Scroll the Diff pane down / up half a page          |
 
 ### Input editing
 
@@ -144,6 +147,14 @@ that tab is active. Unlabelled keys work from anywhere.
 - The row beneath the main pane is a **context hint footer**: dim
   per-tab quick-reference of the most useful keys. Long lines clip
   on narrow terminals; the highest-value keys come first.
+- The Diff pane (`v`) renders the full `git diff base...target`
+  unified-diff output with classified colour: green for `+`, red
+  for `-`, cyan for `@@` hunks, bold-white for `diff --git` file
+  headers, dim for metadata. Above the patch a 3-line band shows
+  the target/base pair, ahead/behind counts, and the total patch
+  line count. `Ctrl-D` / `Ctrl-U` scroll the patch half a page at
+  a time; the scroll position resets when the cursor lands on a
+  different target.
 
 ### Confirm dialog
 
@@ -218,6 +229,14 @@ upstream-short · upstream-track · subject). Subject lives last so a
 stray `\x1f` in a commit message can't truncate later fields. The
 upstream-short / upstream-track pair feeds `Branch.upstream_track`
 (`Option<UpstreamTrack>`) and powers the ahead/behind badge.
+
+`branch_diff` returns a `BranchDiff { target, base, ahead, behind,
+patch }`. The first two come from `git log base..target` and
+`git log target..base`; `patch` is the parsed output of `git diff
+--no-color base...target` (three dots — same view as PR review).
+`DiffLine` classifies each line as FileHeader / Hunk / Add /
+Remove / Context / Meta so the renderer can colour without
+re-parsing.
 
 ### 6.3 Layout
 
@@ -440,6 +459,31 @@ src/git/
   - Cursor after delete uses the existing clamp behaviour
     ("next adjacent, fallback to new last") — verified by tests,
     not changed.
+
+- **2026-05-18 — A8 diff pane shows the full patch, not just
+  commits.**
+  v0.3's initial A8 showed two compact commit lists (ahead /
+  behind). The pane now renders the unified-diff patch from
+  `git diff --no-color base...target` (three dots), classified
+  into `DiffLine::{FileHeader, Hunk, Add, Remove, Context,
+  Meta}` and coloured accordingly. Header band keeps the
+  target/base/ahead/behind summary above the scrollable patch.
+  `Ctrl-D` / `Ctrl-U` scroll by 10 lines; chosen over j/k so
+  the list-side cursor remains the j/k owner. Plain `d` for
+  delete is preserved because the Ctrl-D match arm comes first
+  and uses a `KeyModifiers::CONTROL` guard.
+
+- **2026-05-18 — Diff cache invalidation keys off the
+  (target, base) tuple, not just target.**
+  Earlier the cache compared only the target name. After a
+  checkout, the cached `{target: feature/foo, base: main}`
+  stayed live even though `feature/foo` had become the current
+  branch (so target should equal base and the pane should
+  show no-diff). Now `maybe_refresh_branch_diff` computes the
+  desired `Option<(target, base)>` and recomputes whenever it
+  differs from the cached pair. `on_task_result` also forces
+  a recompute when Diff mode is active, so pull / fetch /
+  push that move HEAD don't leave stale lines visible.
 
 - **2026-05-18 — Shell wrapper design locked in as Plan B (explicit
   Enter, no auto-cd from `W`).**
