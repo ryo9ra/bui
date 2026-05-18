@@ -49,9 +49,12 @@ impl LayoutSpec {
         let main = chunks[1];
         let main_split = match self.main {
             MainSpec::Split => {
+                // 60/40 split, scales with the terminal. Min(30) on the
+                // list side stops the right pane from squeezing the table
+                // unreadable on very narrow terminals.
                 let parts = Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints([Constraint::Min(30), Constraint::Length(40)])
+                    .constraints([Constraint::Min(30), Constraint::Percentage(40)])
                     .split(main);
                 Some((parts[0], parts[1]))
             }

@@ -7,6 +7,12 @@ use ratatui::{
 };
 
 use crate::app::{App, Tab};
+use crate::ui::middle_truncate;
+
+/// Width used by every column other than the long-name column (marker +
+/// sha + date + ratatui's default column spacing). Keep in sync with the
+/// `widths` arrays below.
+const FIXED_COLUMNS_WIDTH: u16 = 1 + 8 + 14 + 3;
 
 pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     match app.active_tab {
@@ -27,6 +33,10 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
     let theme = &app.config.theme;
+    let name_budget = area
+        .width
+        .saturating_sub(FIXED_COLUMNS_WIDTH)
+        .saturating_sub(2) as usize; // small slack for tag suffixes
     let rows: Vec<Row> = visible
         .iter()
         .enumerate()
@@ -43,7 +53,10 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
                 style = style.add_modifier(Modifier::REVERSED);
             }
 
-            let mut name_spans: Vec<Span<'static>> = vec![Span::raw(b.name.clone())];
+            let mut name_spans: Vec<Span<'static>> = vec![Span::raw(middle_truncate(
+                &b.name,
+                name_budget,
+            ))];
             if b.is_merged && !b.is_current {
                 name_spans.push(Span::styled(
                     "  merged",
@@ -90,6 +103,7 @@ fn draw_remote(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
     let theme = &app.config.theme;
+    let name_budget = area.width.saturating_sub(FIXED_COLUMNS_WIDTH) as usize;
     let rows: Vec<Row> = visible
         .iter()
         .enumerate()
@@ -100,7 +114,7 @@ fn draw_remote(f: &mut Frame, app: &App, area: Rect) {
             }
             Row::new(vec![
                 " ".to_string(),
-                b.full_name.clone(),
+                middle_truncate(&b.full_name, name_budget),
                 b.short_sha.clone(),
                 b.rel_date.clone(),
             ])
@@ -124,6 +138,10 @@ fn draw_worktree(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
     let theme = &app.config.theme;
+    // Layout: marker(1) + branch(min 15) + sha(8) + spacing(3). Path
+    // gets the remainder; middle-truncate it so the front (often `~/`)
+    // and tail (the leaf, the most identifying part) stay visible.
+    let path_budget = area.width.saturating_sub(1 + 15 + 8 + 3) as usize;
     let rows: Vec<Row> = app
         .worktrees
         .iter()
@@ -149,7 +167,7 @@ fn draw_worktree(f: &mut Frame, app: &App, area: Rect) {
                 Cell::from(marker.to_string()),
                 Cell::from(branch),
                 Cell::from(head_short),
-                Cell::from(w.path.clone()),
+                Cell::from(middle_truncate(&w.path, path_budget)),
             ])
             .style(style)
         })
