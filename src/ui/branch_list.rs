@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
 };
 
-use crate::app::{App, Tab};
+use crate::app::{App, FlashKind, Tab};
 use crate::ui::middle_truncate;
 
 /// Width used by every column other than the long-name column (marker +
@@ -51,6 +51,14 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
             };
             if i == app.selected {
                 style = style.add_modifier(Modifier::REVERSED);
+            }
+            if let Some(flash) = &app.flash
+                && matches!(&flash.kind, FlashKind::LocalBranch(n) if n == &b.name)
+            {
+                style = Style::default()
+                    .bg(Color::Green)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD);
             }
 
             let mut name_spans: Vec<Span<'static>> = vec![Span::raw(middle_truncate(
@@ -172,6 +180,14 @@ fn draw_worktree(f: &mut Frame, app: &App, area: Rect) {
             };
             if i == app.selected_worktree {
                 style = style.add_modifier(Modifier::REVERSED);
+            }
+            if let Some(flash) = &app.flash
+                && matches!(&flash.kind, FlashKind::Worktree(p) if p == &w.path)
+            {
+                style = Style::default()
+                    .bg(Color::Green)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD);
             }
             let branch = w
                 .branch

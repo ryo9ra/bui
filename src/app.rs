@@ -40,6 +40,7 @@ pub struct App {
     pub confirm: Option<ConfirmState>,
     pub upstream_picker: Option<UpstreamPickerState>,
     pub layout: LayoutSpec,
+    pub flash: Option<FlashState>,
     pub right_pane: RightPane,
     /// Lazily computed and cached when `right_pane == Diff`. Cleared on
     /// refresh / selection change so it can't go stale.
@@ -52,6 +53,21 @@ pub struct PendingTask {
     pub id: TaskId,
     pub desc: String,
 }
+
+/// Short visual highlight applied to a freshly-created/renamed row.
+/// Decremented every tick; cleared at `ttl == 0`.
+pub struct FlashState {
+    pub kind: FlashKind,
+    pub ttl: u8,
+}
+
+pub enum FlashKind {
+    LocalBranch(String),
+    Worktree(String),
+}
+
+/// ~5 ticks × 250 ms = ~1.25 s of flash before it fades.
+const FLASH_TICKS: u8 = 5;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Tab {
@@ -297,6 +313,7 @@ impl App {
             confirm: None,
             upstream_picker: None,
             layout: LayoutSpec::default_layout(),
+            flash: None,
             right_pane: RightPane::Detail,
             branch_diff: None,
             should_quit: false,
@@ -741,6 +758,7 @@ impl App {
                 if let Some(i) = self.worktrees.iter().position(|w| w.path == expanded) {
                     self.selected_worktree = i;
                 }
+                self.flash_worktree(&expanded);
                 self.status = match new_branch {
                     Some(name) => {
                         format!("added worktree {expanded} on new branch {name} (off {base})")
@@ -1076,6 +1094,7 @@ impl App {
         match self.repo.create_branch(name, source) {
             Ok(()) => {
                 self.refresh(Some(name));
+                self.flash_local(name);
                 self.status = match source {
                     Some(src) => format!("created {name} from {src}"),
                     None => format!("created {name}"),
@@ -1093,6 +1112,7 @@ impl App {
         match self.repo.rename_branch(old, new) {
             Ok(()) => {
                 self.refresh(Some(new));
+                self.flash_local(new);
                 self.status = format!("renamed {old} -> {new}");
             }
             Err(e) => self.status = format!("error: {e}"),
@@ -1104,6 +1124,27 @@ impl App {
             self.spinner_frame = self.spinner_frame.wrapping_add(1);
             self.dirty = true;
         }
+        if let Some(flash) = self.flash.as_mut() {
+            flash.ttl = flash.ttl.saturating_sub(1);
+            if flash.ttl == 0 {
+                self.flash = None;
+            }
+            self.dirty = true;
+        }
+    }
+
+    fn flash_local(&mut self, name: impl Into<String>) {
+        self.flash = Some(FlashState {
+            kind: FlashKind::LocalBranch(name.into()),
+            ttl: FLASH_TICKS,
+        });
+    }
+
+    fn flash_worktree(&mut self, path: impl Into<String>) {
+        self.flash = Some(FlashState {
+            kind: FlashKind::Worktree(path.into()),
+            ttl: FLASH_TICKS,
+        });
     }
 
     fn move_down(&mut self) {
@@ -2044,6 +2085,52 @@ mod tests {
         app.submit_input();
         let input = app.input.as_ref().expect("step 2");
         assert_eq!(input.value, "../wt-foo");
+    }
+
+    #[test]
+    fn create_sets_a_flash_on_the_new_branch() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.do_create_branch("feature/foo", None);
+        let flash = app.flash.as_ref().expect("flash should be set");
+        match &flash.kind {
+            FlashKind::LocalBranch(n) => assert_eq!(n, "feature/foo"),
+            _ => panic!("expected LocalBranch flash"),
+        }
+        assert_eq!(flash.ttl, FLASH_TICKS);
+    }
+
+    #[test]
+    fn rename_sets_a_flash_on_the_new_name() {
+        let mut app = app_with(vec![br("old-name", false)]);
+        app.do_rename_branch("old-name", "new-name");
+        let flash = app.flash.as_ref().expect("flash should be set");
+        match &flash.kind {
+            FlashKind::LocalBranch(n) => assert_eq!(n, "new-name"),
+            _ => panic!("expected LocalBranch flash"),
+        }
+    }
+
+    #[test]
+    fn flash_decrements_on_tick_and_clears_at_zero() {
+        let mut app = app_with(vec![br("main", true)]);
+        app.flash = Some(FlashState {
+            kind: FlashKind::LocalBranch("main".to_string()),
+            ttl: 2,
+        });
+        app.on_tick();
+        assert_eq!(app.flash.as_ref().unwrap().ttl, 1);
+        app.on_tick();
+        assert!(app.flash.is_none());
+    }
+
+    #[test]
+    fn checkout_does_not_set_a_flash() {
+        // Checkout is a navigation action, not a creation — should NOT
+        // flash. (#7 covers create/rename/add-worktree only.)
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.selected = 1;
+        app.checkout_selected();
+        assert!(app.flash.is_none());
     }
 
     #[test]
