@@ -4,7 +4,7 @@ use std::process::Command;
 
 use anyhow::{Result, anyhow};
 
-use crate::git::{Branch, BranchDiff, Commit, RemoteBranch, UpstreamTrack};
+use crate::git::{Branch, BranchDiff, Commit, DiffLine, RemoteBranch, UpstreamTrack};
 
 // for-each-ref output is machine-readable. Field separator is \x1f (US).
 const FIELD_SEP: char = '\x1f';
@@ -329,12 +329,68 @@ pub fn checkout_tracking(workdir: &Path, local: &str, remote_ref: &str) -> Resul
 pub fn branch_diff(workdir: &Path, target: &str, base: &str) -> Result<BranchDiff> {
     let ahead = log_commits(workdir, &format!("{base}..{target}"))?;
     let behind = log_commits(workdir, &format!("{target}..{base}"))?;
+    let patch = run_diff_patch(workdir, target, base)?;
     Ok(BranchDiff {
         target: target.to_string(),
         base: base.to_string(),
         ahead,
         behind,
+        patch,
     })
+}
+
+fn run_diff_patch(workdir: &Path, target: &str, base: &str) -> Result<Vec<DiffLine>> {
+    // `base...target` shows the changes target made since diverging from
+    // base — same view as PR review.
+    let range = format!("{base}...{target}");
+    let out = Command::new("git")
+        .current_dir(workdir)
+        .args(["diff", "--no-color", &range])
+        .output()?;
+    if !out.status.success() {
+        return Err(anyhow!(
+            "git diff {range} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim()
+        ));
+    }
+    Ok(parse_diff(&String::from_utf8_lossy(&out.stdout)))
+}
+
+pub(crate) fn parse_diff(stdout: &str) -> Vec<DiffLine> {
+    stdout
+        .lines()
+        .map(|line| {
+            if line.starts_with("diff --git ") {
+                DiffLine::FileHeader(line.to_string())
+            } else if line.starts_with("@@") {
+                DiffLine::Hunk(line.to_string())
+            } else if line.starts_with("+++") || line.starts_with("---") {
+                // unified-diff file header lines — meta, not add/remove
+                DiffLine::Meta(line.to_string())
+            } else if line.starts_with("index ")
+                || line.starts_with("new file mode")
+                || line.starts_with("deleted file mode")
+                || line.starts_with("similarity index ")
+                || line.starts_with("rename from ")
+                || line.starts_with("rename to ")
+                || line.starts_with("old mode")
+                || line.starts_with("new mode")
+                || line.starts_with("\\ No newline at end of file")
+            {
+                DiffLine::Meta(line.to_string())
+            } else if let Some(rest) = line.strip_prefix('+') {
+                DiffLine::Add(format!("+{rest}"))
+            } else if let Some(rest) = line.strip_prefix('-') {
+                DiffLine::Remove(format!("-{rest}"))
+            } else {
+                DiffLine::Context(line.to_string())
+            }
+        })
+        .collect()
 }
 
 fn log_commits(workdir: &Path, range: &str) -> Result<Vec<Commit>> {
@@ -621,6 +677,57 @@ branch refs/heads/foo";
         assert_eq!(commits[0].subject, "fix oauth");
         assert_eq!(commits[1].short_sha, "def5678");
         assert_eq!(commits[1].subject, "wip: refactor");
+    }
+
+    #[test]
+    fn diff_parser_classifies_typical_lines() {
+        let stdout = "\
+diff --git a/foo.rs b/foo.rs
+index 1234567..abcdef0 100644
+--- a/foo.rs
++++ b/foo.rs
+@@ -1,3 +1,4 @@
+ fn main() {
+-    println!(\"old\");
++    println!(\"new\");
++    println!(\"extra\");
+ }
+";
+        let lines = parse_diff(stdout);
+        assert!(matches!(lines[0], DiffLine::FileHeader(_)));
+        assert!(matches!(lines[1], DiffLine::Meta(_)));
+        assert!(matches!(lines[2], DiffLine::Meta(_)));
+        assert!(matches!(lines[3], DiffLine::Meta(_)));
+        assert!(matches!(lines[4], DiffLine::Hunk(_)));
+        assert!(matches!(lines[5], DiffLine::Context(_)));
+        match &lines[6] {
+            DiffLine::Remove(s) => assert!(s.starts_with("-    println!")),
+            _ => panic!("expected Remove at index 6"),
+        }
+        match &lines[7] {
+            DiffLine::Add(s) => assert!(s.starts_with("+    println!")),
+            _ => panic!("expected Add at index 7"),
+        }
+        assert!(matches!(lines[8], DiffLine::Add(_)));
+        assert!(matches!(lines[9], DiffLine::Context(_)));
+    }
+
+    #[test]
+    fn diff_parser_handles_no_newline_marker() {
+        let stdout = "+last\n\\ No newline at end of file\n";
+        let lines = parse_diff(stdout);
+        assert_eq!(lines.len(), 2);
+        assert!(matches!(lines[0], DiffLine::Add(_)));
+        assert!(matches!(lines[1], DiffLine::Meta(_)));
+    }
+
+    #[test]
+    fn diff_parser_does_not_misclassify_triple_dash() {
+        // `---` and `+++` are file headers, not Remove/Add lines.
+        let stdout = "--- a/foo\n+++ b/foo\n";
+        let lines = parse_diff(stdout);
+        assert!(matches!(lines[0], DiffLine::Meta(_)));
+        assert!(matches!(lines[1], DiffLine::Meta(_)));
     }
 
     #[test]

@@ -33,6 +33,7 @@ Enter        (Worktree) show `cd <path>` hint in status bar
 d            (Worktree) remove selected worktree (confirm)
 u            (Local) set upstream — pick a remote (e.g. origin)
 v            toggle right pane: detail ↔ diff vs current branch
+Ctrl-D/U     scroll the Diff pane half a page (when v is active)
 /            incremental search (filter by name)
 s            toggle sort: recency ↔ name
 F            (Local) cycle filter: all → merged → unmerged → all

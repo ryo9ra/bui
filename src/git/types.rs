@@ -36,6 +36,25 @@ pub struct BranchDiff {
     pub ahead: Vec<Commit>,
     /// Commits in `base` not reachable from `target`.
     pub behind: Vec<Commit>,
+    /// `git diff base...target` output classified for styled rendering.
+    pub patch: Vec<DiffLine>,
+}
+
+/// One line of a unified diff, classified for styled rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiffLine {
+    /// `diff --git a/... b/...`
+    FileHeader(String),
+    /// `@@ -X,Y +A,B @@ context`
+    Hunk(String),
+    /// `+` lines (excluding `+++` header).
+    Add(String),
+    /// `-` lines (excluding `---` header).
+    Remove(String),
+    /// Unchanged context.
+    Context(String),
+    /// `index ...`, `--- ...`, `+++ ...`, `new file mode`, similar.
+    Meta(String),
 }
 
 #[derive(Debug, Clone)]

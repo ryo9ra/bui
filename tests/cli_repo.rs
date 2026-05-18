@@ -465,12 +465,45 @@ fn branch_diff_reports_ahead_and_behind_commits() {
 }
 
 #[test]
+fn branch_diff_populates_patch_for_diverged_branches() {
+    use bui::git::DiffLine;
+    let dir = init_repo();
+    let repo = open(&dir);
+
+    repo.create_branch("feature/foo", None).unwrap();
+    repo.checkout("feature/foo").unwrap();
+    std::fs::write(dir.path().join("foo.txt"), "added by feature\n").unwrap();
+    run_git(dir.path(), &["add", "."]);
+    run_git(dir.path(), &["commit", "-m", "feature change", "-q"]);
+    repo.checkout("main").unwrap();
+
+    let diff = repo.branch_diff("feature/foo", "main").unwrap();
+    assert!(!diff.patch.is_empty(), "patch should have content");
+    let kinds: Vec<&str> = diff
+        .patch
+        .iter()
+        .map(|l| match l {
+            DiffLine::FileHeader(_) => "file",
+            DiffLine::Hunk(_) => "hunk",
+            DiffLine::Add(_) => "add",
+            DiffLine::Remove(_) => "remove",
+            DiffLine::Context(_) => "ctx",
+            DiffLine::Meta(_) => "meta",
+        })
+        .collect();
+    assert!(kinds.contains(&"file"), "kinds: {kinds:?}");
+    assert!(kinds.contains(&"hunk"), "kinds: {kinds:?}");
+    assert!(kinds.contains(&"add"), "kinds: {kinds:?}");
+}
+
+#[test]
 fn branch_diff_against_same_branch_is_empty() {
     let dir = init_repo();
     let repo = open(&dir);
     let diff = repo.branch_diff("main", "main").unwrap();
     assert!(diff.ahead.is_empty());
     assert!(diff.behind.is_empty());
+    assert!(diff.patch.is_empty());
 }
 
 #[test]

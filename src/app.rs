@@ -45,6 +45,8 @@ pub struct App {
     /// Lazily computed and cached when `right_pane == Diff`. Cleared on
     /// refresh / selection change so it can't go stale.
     pub branch_diff: Option<BranchDiff>,
+    /// Vertical scroll offset (in patch lines) for the Diff pane.
+    pub diff_scroll: u16,
     pub should_quit: bool,
     pub dirty: bool,
 }
@@ -316,6 +318,7 @@ impl App {
             flash: None,
             right_pane: RightPane::Detail,
             branch_diff: None,
+            diff_scroll: 0,
             should_quit: false,
             dirty: true,
         }
@@ -338,6 +341,7 @@ impl App {
     }
 
     fn recompute_branch_diff(&mut self) {
+        self.diff_scroll = 0;
         let Some(target) = self.selected_branch().map(|b| b.name.clone()) else {
             self.branch_diff = None;
             return;
@@ -359,6 +363,19 @@ impl App {
             Ok(d) => self.branch_diff = Some(d),
             Err(_) => self.branch_diff = None,
         }
+    }
+
+    fn scroll_diff_down(&mut self) {
+        let max = self
+            .branch_diff
+            .as_ref()
+            .map(|d| d.patch.len().saturating_sub(1) as u16)
+            .unwrap_or(0);
+        self.diff_scroll = self.diff_scroll.saturating_add(10).min(max);
+    }
+
+    fn scroll_diff_up(&mut self) {
+        self.diff_scroll = self.diff_scroll.saturating_sub(10);
     }
 
     fn maybe_refresh_branch_diff(&mut self) {
@@ -638,6 +655,20 @@ impl App {
             // from a filtered view.
             KeyCode::Esc if !self.filter.is_empty() => self.clear_filter(),
             KeyCode::Esc => self.should_quit = true,
+            // Ctrl-D / Ctrl-U scroll the Diff pane. Must come before the
+            // plain `d` / `D` / `u` arms below.
+            KeyCode::Char('d')
+                if key.modifiers == KeyModifiers::CONTROL
+                    && self.right_pane == RightPane::Diff =>
+            {
+                self.scroll_diff_down();
+            }
+            KeyCode::Char('u')
+                if key.modifiers == KeyModifiers::CONTROL
+                    && self.right_pane == RightPane::Diff =>
+            {
+                self.scroll_diff_up();
+            }
             KeyCode::Char('d') if self.active_tab == Tab::Local => self.request_delete(false),
             KeyCode::Char('D') if self.active_tab == Tab::Local => self.request_delete(true),
             KeyCode::Char('d') if self.active_tab == Tab::Remote => self.request_delete_remote(),
@@ -1320,6 +1351,7 @@ mod tests {
                 base: base.to_string(),
                 ahead: vec![],
                 behind: vec![],
+                patch: vec![],
             })
         }
     }
@@ -2268,6 +2300,71 @@ mod tests {
         // Move down to feature/bar — diff should swap target.
         app.on_key(k(KeyCode::Char('j')));
         assert_eq!(app.branch_diff.as_ref().unwrap().target, "feature/bar");
+    }
+
+    #[test]
+    fn ctrl_d_scrolls_diff_pane_when_in_diff_mode() {
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('v'))); // enter diff
+        assert_eq!(app.diff_scroll, 0);
+        // Pretend we have a tall patch so the scroll has somewhere to go.
+        if let Some(d) = app.branch_diff.as_mut() {
+            d.patch = (0..50)
+                .map(|i| crate::git::DiffLine::Context(format!("line {i}")))
+                .collect();
+        }
+        app.on_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        assert_eq!(app.diff_scroll, 10);
+        app.on_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert_eq!(app.diff_scroll, 0);
+    }
+
+    #[test]
+    fn ctrl_d_clamps_scroll_to_patch_length() {
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('v')));
+        if let Some(d) = app.branch_diff.as_mut() {
+            d.patch = vec![crate::git::DiffLine::Context("only".to_string())];
+        }
+        for _ in 0..5 {
+            app.on_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        }
+        // patch.len() == 1 → max scroll = 0.
+        assert_eq!(app.diff_scroll, 0);
+    }
+
+    #[test]
+    fn ctrl_d_does_not_delete_when_in_diff_mode() {
+        // Regression: plain `d` deletes; Ctrl-D must not be treated as
+        // plain `d` and accidentally open a delete confirm.
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('v')));
+        app.on_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        assert!(app.confirm.is_none());
+    }
+
+    #[test]
+    fn selecting_a_new_target_resets_diff_scroll() {
+        let mut app = app_with(vec![
+            br("main", true),
+            br("feature/foo", false),
+            br("feature/bar", false),
+        ]);
+        app.selected = 1;
+        app.on_key(k(KeyCode::Char('v')));
+        if let Some(d) = app.branch_diff.as_mut() {
+            d.patch = (0..50)
+                .map(|i| crate::git::DiffLine::Context(format!("line {i}")))
+                .collect();
+        }
+        app.on_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        assert_eq!(app.diff_scroll, 10);
+        // Move cursor — diff recomputes, scroll resets.
+        app.on_key(k(KeyCode::Char('j')));
+        assert_eq!(app.diff_scroll, 0);
     }
 
     #[test]

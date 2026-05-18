@@ -1,15 +1,13 @@
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
 use crate::app::{App, Tab};
-use crate::git::Commit;
-
-const VISIBLE_COMMITS: usize = 8;
+use crate::git::DiffLine;
 
 pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
@@ -17,6 +15,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         .border_style(Style::default().fg(Color::DarkGray));
 
     let dim = Style::default().fg(Color::DarkGray);
+
     let Some(diff) = &app.branch_diff else {
         let msg = match app.active_tab {
             Tab::Local => {
@@ -30,16 +29,30 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             Line::from(""),
             Line::from(Span::styled(msg.to_string(), dim)),
             Line::from(""),
-            Line::from(Span::styled("  v: toggle back to detail", dim.add_modifier(Modifier::DIM))),
+            Line::from(Span::styled(
+                "  v: toggle back to detail",
+                dim.add_modifier(Modifier::DIM),
+            )),
         ];
-        f.render_widget(Paragraph::new(body).block(block).wrap(Wrap { trim: false }), area);
+        f.render_widget(
+            Paragraph::new(body).block(block).wrap(Wrap { trim: false }),
+            area,
+        );
         return;
     };
 
-    let mut lines = vec![
-        Line::from(""),
+    // Split: 3-row fixed header on top, patch on the rest.
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let split = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(0)])
+        .split(inner);
+
+    // Header.
+    let header = vec![
         Line::from(vec![
-            Span::styled("  Diff:   ", dim),
+            Span::styled("  Diff: ", dim),
             Span::styled(
                 diff.target.clone(),
                 Style::default().add_modifier(Modifier::BOLD),
@@ -47,59 +60,61 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             Span::styled("  vs  ", dim),
             Span::styled(diff.base.clone(), Style::default().fg(Color::Green)),
         ]),
-        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ", dim),
+            Span::styled(
+                format!("↑{} ", diff.ahead.len()),
+                Style::default().fg(Color::Cyan),
+            ),
+            Span::styled(
+                format!("↓{}", diff.behind.len()),
+                Style::default().fg(Color::Magenta),
+            ),
+            Span::styled(
+                format!(
+                    "    Ctrl-D/U scroll · {} patch lines",
+                    diff.patch.len()
+                ),
+                dim.add_modifier(Modifier::DIM),
+            ),
+        ]),
+        Line::from(Span::styled(
+            "─".repeat(80),
+            Style::default().fg(Color::DarkGray),
+        )),
     ];
+    f.render_widget(Paragraph::new(header), split[0]);
 
-    push_section(
-        &mut lines,
-        &diff.ahead,
-        format!("  Ahead ({}):", diff.ahead.len()),
-        Color::Cyan,
-    );
-    lines.push(Line::from(""));
-    push_section(
-        &mut lines,
-        &diff.behind,
-        format!("  Behind ({}):", diff.behind.len()),
-        Color::Magenta,
-    );
-
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  v: back to detail",
-        dim.add_modifier(Modifier::DIM),
-    )));
-
-    f.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
-        area,
-    );
-}
-
-fn push_section(lines: &mut Vec<Line<'static>>, commits: &[Commit], heading: String, color: Color) {
-    lines.push(Line::from(Span::styled(
-        heading,
-        Style::default().fg(color),
-    )));
-    if commits.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "    (none)",
-            Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
-        )));
+    // Patch.
+    if diff.patch.is_empty() {
+        let body = vec![Line::from(Span::styled(
+            "  (no file-level changes)",
+            dim.add_modifier(Modifier::DIM),
+        ))];
+        f.render_widget(Paragraph::new(body), split[1]);
         return;
     }
-    for c in commits.iter().take(VISIBLE_COMMITS) {
-        lines.push(Line::from(vec![
-            Span::raw("    "),
-            Span::styled(c.short_sha.clone(), Style::default().fg(Color::Yellow)),
-            Span::raw("  "),
-            Span::raw(c.subject.clone()),
-        ]));
-    }
-    if commits.len() > VISIBLE_COMMITS {
-        lines.push(Line::from(Span::styled(
-            format!("    … {} more", commits.len() - VISIBLE_COMMITS),
+
+    let lines: Vec<Line<'static>> = diff.patch.iter().map(render_diff_line).collect();
+    let patch = Paragraph::new(lines).scroll((app.diff_scroll, 0));
+    f.render_widget(patch, split[1]);
+}
+
+fn render_diff_line(line: &DiffLine) -> Line<'static> {
+    match line {
+        DiffLine::FileHeader(s) => Line::from(Span::styled(
+            s.clone(),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )),
+        DiffLine::Hunk(s) => Line::from(Span::styled(s.clone(), Style::default().fg(Color::Cyan))),
+        DiffLine::Add(s) => Line::from(Span::styled(s.clone(), Style::default().fg(Color::Green))),
+        DiffLine::Remove(s) => Line::from(Span::styled(s.clone(), Style::default().fg(Color::Red))),
+        DiffLine::Context(s) => Line::from(Span::raw(s.clone())),
+        DiffLine::Meta(s) => Line::from(Span::styled(
+            s.clone(),
             Style::default().fg(Color::DarkGray),
-        )));
+        )),
     }
 }

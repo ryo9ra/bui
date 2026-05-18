@@ -2,7 +2,7 @@ pub mod cli;
 pub mod ops;
 pub mod types;
 
-pub use types::{Branch, BranchDiff, Commit, RemoteBranch, UpstreamTrack, Worktree};
+pub use types::{Branch, BranchDiff, Commit, DiffLine, RemoteBranch, UpstreamTrack, Worktree};
 
 use anyhow::Result;
 
