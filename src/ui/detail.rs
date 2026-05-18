@@ -115,7 +115,10 @@ fn draw_branch_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &Branch, a
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("  Subject:", label)));
-    lines.push(Line::from(vec![Span::raw("    "), Span::raw(b.subject.clone())]));
+    lines.push(Line::from(vec![
+        Span::raw("    "),
+        Span::raw(b.subject.clone()),
+    ]));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "  (full body / author / upstream coming later)",
@@ -123,7 +126,9 @@ fn draw_branch_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &Branch, a
     )));
 
     f.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }
@@ -146,7 +151,10 @@ fn draw_remote_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &RemoteBra
         ]),
         Line::from(vec![
             Span::styled("  Full:    ", label),
-            Span::styled(b.full_name.clone(), Style::default().fg(theme.remote_branch)),
+            Span::styled(
+                b.full_name.clone(),
+                Style::default().fg(theme.remote_branch),
+            ),
         ]),
         Line::from(vec![
             Span::styled("  SHA:     ", label),
@@ -166,7 +174,9 @@ fn draw_remote_detail(f: &mut Frame, area: Rect, block: Block<'_>, b: &RemoteBra
         )),
     ];
     f.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }
@@ -189,11 +199,7 @@ fn draw_worktree_detail(f: &mut Frame, area: Rect, block: Block<'_>, w: &Worktre
         ]),
         Line::from(vec![
             Span::styled("  Branch: ", label),
-            Span::raw(
-                w.branch
-                    .clone()
-                    .unwrap_or_else(|| "(detached)".to_string()),
-            ),
+            Span::raw(w.branch.clone().unwrap_or_else(|| "(detached)".to_string())),
         ]),
     ];
     if w.is_current {
@@ -209,7 +215,9 @@ fn draw_worktree_detail(f: &mut Frame, area: Rect, block: Block<'_>, w: &Worktre
     )));
 
     f.render_widget(
-        Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
         area,
     );
 }

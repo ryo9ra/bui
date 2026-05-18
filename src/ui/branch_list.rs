@@ -61,16 +61,11 @@ fn draw_local(f: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD);
             }
 
-            let mut name_spans: Vec<Span<'static>> = vec![Span::raw(middle_truncate(
-                &b.name,
-                name_budget,
-            ))];
+            let mut name_spans: Vec<Span<'static>> =
+                vec![Span::raw(middle_truncate(&b.name, name_budget))];
             if let Some(track) = &b.upstream_track {
                 if track.gone {
-                    name_spans.push(Span::styled(
-                        "  (gone)",
-                        Style::default().fg(Color::Yellow),
-                    ));
+                    name_spans.push(Span::styled("  (gone)", Style::default().fg(Color::Yellow)));
                 } else if track.ahead > 0 || track.behind > 0 {
                     let s = match (track.ahead, track.behind) {
                         (a, 0) => format!("  ↑{a}"),
@@ -189,10 +184,7 @@ fn draw_worktree(f: &mut Frame, app: &App, area: Rect) {
                     .fg(Color::Black)
                     .add_modifier(Modifier::BOLD);
             }
-            let branch = w
-                .branch
-                .clone()
-                .unwrap_or_else(|| "(detached)".to_string());
+            let branch = w.branch.clone().unwrap_or_else(|| "(detached)".to_string());
             let head_short: String = w.head.chars().take(8).collect();
             Row::new(vec![
                 Cell::from(marker.to_string()),

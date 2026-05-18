@@ -2,11 +2,11 @@ use std::io;
 use std::sync::Arc;
 
 use anyhow::Result;
-use bui::{app, config, event, git, task};
 use bui::git::Repo;
+use bui::{app, config, event, git, task};
 use crossterm::{
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 

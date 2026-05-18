@@ -130,8 +130,12 @@ pub struct InputState {
 
 pub enum InputMode {
     CreateBranch,
-    CreateBranchFrom { source: String },
-    RenameBranch { old: String },
+    CreateBranchFrom {
+        source: String,
+    },
+    RenameBranch {
+        old: String,
+    },
     /// Step 1 of the worktree-add flow: pick the new branch name (or leave
     /// empty to reuse `base`).
     AddWorktreeName {
@@ -237,10 +241,7 @@ impl UpstreamPickerState {
         }
         // Pre-select `origin` if it's one of the remotes (the overwhelming
         // common case); otherwise the first.
-        let selected = candidates
-            .iter()
-            .position(|c| c == "origin")
-            .unwrap_or(0);
+        let selected = candidates.iter().position(|c| c == "origin").unwrap_or(0);
         Self {
             branch,
             candidates,
@@ -286,11 +287,7 @@ pub enum ConfirmAction {
 }
 
 impl App {
-    pub fn new(
-        repo: Arc<dyn Repo>,
-        task_tx: Sender<(TaskId, Action)>,
-        config: Config,
-    ) -> Self {
+    pub fn new(repo: Arc<dyn Repo>, task_tx: Sender<(TaskId, Action)>, config: Config) -> Self {
         Self {
             repo,
             config,
@@ -561,10 +558,7 @@ impl App {
         if let Ok(bs) = self.repo.list_remote_branches() {
             self.remote_branches = bs;
             if self.selected_remote >= self.remote_branches.len() {
-                self.selected_remote = self
-                    .visible_remote_branches()
-                    .len()
-                    .saturating_sub(1);
+                self.selected_remote = self.visible_remote_branches().len().saturating_sub(1);
             }
         }
         if let Ok(ws) = self.repo.list_worktrees() {
@@ -680,14 +674,12 @@ impl App {
             // Ctrl-D / Ctrl-U scroll the Diff pane. Must come before the
             // plain `d` / `D` / `u` arms below.
             KeyCode::Char('d')
-                if key.modifiers == KeyModifiers::CONTROL
-                    && self.right_pane == RightPane::Diff =>
+                if key.modifiers == KeyModifiers::CONTROL && self.right_pane == RightPane::Diff =>
             {
                 self.scroll_diff_down();
             }
             KeyCode::Char('u')
-                if key.modifiers == KeyModifiers::CONTROL
-                    && self.right_pane == RightPane::Diff =>
+                if key.modifiers == KeyModifiers::CONTROL && self.right_pane == RightPane::Diff =>
             {
                 self.scroll_diff_up();
             }
@@ -729,16 +721,12 @@ impl App {
         };
         let local_name = rb.name.clone();
         let remote_ref = rb.full_name.clone();
-        let local_exists = self
-            .local_branches
-            .iter()
-            .any(|b| b.name == local_name);
+        let local_exists = self.local_branches.iter().any(|b| b.name == local_name);
 
         let result = if local_exists {
             self.repo.checkout(&local_name)
         } else {
-            self.repo
-                .checkout_remote_tracking(&local_name, &remote_ref)
+            self.repo.checkout_remote_tracking(&local_name, &remote_ref)
         };
 
         match result {
@@ -979,13 +967,7 @@ impl App {
             ConfirmAction::DeleteBranch { name, force } => self.do_delete_branch(&name, force),
             ConfirmAction::DeleteRemoteBranch { remote, branch } => {
                 let desc = format!("deleting {remote}/{branch}");
-                self.dispatch(
-                    Action::DeleteRemoteBranch {
-                        remote,
-                        branch,
-                    },
-                    desc,
-                );
+                self.dispatch(Action::DeleteRemoteBranch { remote, branch }, desc);
             }
             ConfirmAction::ForceWithLeasePush => {
                 self.dispatch(Action::PushForceWithLease, "force-with-lease push");
@@ -1461,7 +1443,11 @@ mod tests {
 
     #[test]
     fn fix_selection_uses_visible_count_when_filter_active() {
-        let mut app = app_with(vec![br("main", true), br("foo", false), br("foobar", false)]);
+        let mut app = app_with(vec![
+            br("main", true),
+            br("foo", false),
+            br("foobar", false),
+        ]);
         app.filter = "foo".to_string();
         app.selected = 5;
         app.fix_selection(None);
@@ -1818,19 +1804,13 @@ mod tests {
     fn upstream_picker_target_composes_full_ref() {
         let remotes = vec![remote("origin", "main")];
         let picker = UpstreamPickerState::new("feature/foo".to_string(), &remotes);
-        assert_eq!(
-            picker.target(),
-            Some("origin/feature/foo".to_string())
-        );
+        assert_eq!(picker.target(), Some("origin/feature/foo".to_string()));
     }
 
     #[test]
     fn pressing_u_opens_picker_with_remote_names() {
         let mut app = app_with(vec![br("feature/foo", true)]);
-        app.remote_branches = vec![
-            remote("origin", "feature/foo"),
-            remote("forked", "main"),
-        ];
+        app.remote_branches = vec![remote("origin", "feature/foo"), remote("forked", "main")];
         app.on_key(k(KeyCode::Char('u')));
         let picker = app.upstream_picker.as_ref().expect("picker should be open");
         assert_eq!(picker.branch, "feature/foo");
@@ -1859,7 +1839,11 @@ mod tests {
         let before = app.upstream_picker.as_ref().unwrap().selected;
         app.handle_upstream_picker_key(k(KeyCode::Down));
         let after_down = app.upstream_picker.as_ref().unwrap().selected;
-        assert!(after_down == before + 1 || (after_down == before && before + 1 >= app.upstream_picker.as_ref().unwrap().candidates.len()));
+        assert!(
+            after_down == before + 1
+                || (after_down == before
+                    && before + 1 >= app.upstream_picker.as_ref().unwrap().candidates.len())
+        );
         app.handle_upstream_picker_key(k(KeyCode::Up));
         assert!(app.upstream_picker.as_ref().unwrap().selected <= after_down);
     }
@@ -1871,10 +1855,7 @@ mod tests {
         app.on_key(k(KeyCode::Char('u')));
         app.handle_upstream_picker_key(k(KeyCode::Enter));
         assert!(app.upstream_picker.is_none());
-        assert_eq!(
-            app.status,
-            "set upstream feature/foo -> origin/feature/foo"
-        );
+        assert_eq!(app.status, "set upstream feature/foo -> origin/feature/foo");
     }
 
     fn br_merged(name: &str, current: bool, merged: bool) -> Branch {
@@ -2109,10 +2090,7 @@ mod tests {
 
     #[test]
     fn default_worktree_path_uses_leaf_fallback_without_root() {
-        assert_eq!(
-            default_worktree_path(None, "feature/oauth"),
-            "../wt-oauth"
-        );
+        assert_eq!(default_worktree_path(None, "feature/oauth"), "../wt-oauth");
         assert_eq!(default_worktree_path(None, "main"), "../wt-main");
     }
 
@@ -2191,11 +2169,7 @@ mod tests {
     fn deleting_last_branch_lands_on_new_last() {
         // [main(cur), a, b]; cursor on b (the last). Delete b → cursor
         // should land on a (the new last) — not jump to top.
-        let mut app = app_with(vec![
-            br("main", true),
-            br("a", false),
-            br("b", false),
-        ]);
+        let mut app = app_with(vec![br("main", true), br("a", false), br("b", false)]);
         app.selected = 2;
         // Mutate local_branches directly to simulate the post-delete state
         // (NoopRepo's delete_branch is a no-op so refresh wouldn't change
@@ -2396,10 +2370,7 @@ mod tests {
         // checkout via direct state flip (current branch changes from
         // main → feature/foo). After the next key event, the cache should
         // be invalidated because target == base now.
-        let mut app = app_with(vec![
-            br("main", true),
-            br("feature/foo", false),
-        ]);
+        let mut app = app_with(vec![br("main", true), br("feature/foo", false)]);
         app.selected = 1;
         app.on_key(k(KeyCode::Char('v')));
         let cached = app.branch_diff.as_ref().expect("diff after v");
@@ -2451,10 +2422,7 @@ mod tests {
         if let Some(input) = app.input.as_mut() {
             input.value = "pre-filled".to_string();
         }
-        app.handle_input_key(KeyEvent::new(
-            KeyCode::Char('u'),
-            KeyModifiers::CONTROL,
-        ));
+        app.handle_input_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
         assert_eq!(app.input.as_ref().unwrap().value, "");
     }
 

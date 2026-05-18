@@ -11,10 +11,8 @@ const FIELD_SEP: char = '\x1f';
 // Seven fields. Subject lives last so it can contain a stray `\x1f`
 // without truncating subsequent fields (splitn caps the split count).
 //   HEAD · name · sha · rel-date · upstream-short · upstream-track · subject
-const FORMAT: &str =
-    "%(HEAD)\x1f%(refname:short)\x1f%(objectname:short)\x1f%(committerdate:relative)\x1f%(upstream:short)\x1f%(upstream:track)\x1f%(contents:subject)";
-const REMOTE_FORMAT: &str =
-    "%(refname:short)\x1f%(objectname:short)\x1f%(committerdate:relative)\x1f%(contents:subject)\x1f%(symref)";
+const FORMAT: &str = "%(HEAD)\x1f%(refname:short)\x1f%(objectname:short)\x1f%(committerdate:relative)\x1f%(upstream:short)\x1f%(upstream:track)\x1f%(contents:subject)";
+const REMOTE_FORMAT: &str = "%(refname:short)\x1f%(objectname:short)\x1f%(committerdate:relative)\x1f%(contents:subject)\x1f%(symref)";
 
 pub fn list_local(workdir: &Path) -> Result<Vec<Branch>> {
     let out = Command::new("git")
@@ -215,7 +213,9 @@ pub fn list_remote(workdir: &Path) -> Result<Vec<RemoteBranch>> {
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
-    Ok(parse_remote_for_each_ref(&String::from_utf8_lossy(&out.stdout)))
+    Ok(parse_remote_for_each_ref(&String::from_utf8_lossy(
+        &out.stdout,
+    )))
 }
 
 pub(crate) fn parse_remote_for_each_ref(stdout: &str) -> Vec<RemoteBranch> {
@@ -432,11 +432,7 @@ pub(crate) fn parse_commits(stdout: &str) -> Vec<Commit> {
 pub fn set_upstream(workdir: &Path, branch: &str, upstream: &str) -> Result<()> {
     let out = Command::new("git")
         .current_dir(workdir)
-        .args([
-            "branch",
-            &format!("--set-upstream-to={upstream}"),
-            branch,
-        ])
+        .args(["branch", &format!("--set-upstream-to={upstream}"), branch])
         .output()?;
     if !out.status.success() {
         return Err(anyhow!(
@@ -466,12 +462,22 @@ mod tests {
         track: &str,
         subject: &str,
     ) -> String {
-        format!("{head}\u{1f}{name}\u{1f}{sha}\u{1f}{rel}\u{1f}{upstream}\u{1f}{track}\u{1f}{subject}\n")
+        format!(
+            "{head}\u{1f}{name}\u{1f}{sha}\u{1f}{rel}\u{1f}{upstream}\u{1f}{track}\u{1f}{subject}\n"
+        )
     }
 
     #[test]
     fn parses_current_branch_marker() {
-        let bs = parse_for_each_ref(&line("*", "main", "abc1234", "2 days ago", "", "", "fix oauth"));
+        let bs = parse_for_each_ref(&line(
+            "*",
+            "main",
+            "abc1234",
+            "2 days ago",
+            "",
+            "",
+            "fix oauth",
+        ));
         assert_eq!(bs.len(), 1);
         assert!(bs[0].is_current);
         assert_eq!(bs[0].name, "main");
@@ -483,7 +489,15 @@ mod tests {
 
     #[test]
     fn parses_non_current_branch() {
-        let bs = parse_for_each_ref(&line(" ", "feature/foo", "def5678", "1 hour ago", "", "", "wip"));
+        let bs = parse_for_each_ref(&line(
+            " ",
+            "feature/foo",
+            "def5678",
+            "1 hour ago",
+            "",
+            "",
+            "wip",
+        ));
         assert_eq!(bs.len(), 1);
         assert!(!bs[0].is_current);
         assert_eq!(bs[0].name, "feature/foo");
@@ -570,15 +584,7 @@ mod tests {
 
     #[test]
     fn parses_upstream_synced_zero_track() {
-        let bs = parse_for_each_ref(&line(
-            "*",
-            "main",
-            "abc",
-            "2d",
-            "origin/main",
-            "",
-            "msg",
-        ));
+        let bs = parse_for_each_ref(&line("*", "main", "abc", "2d", "origin/main", "", "msg"));
         let t = bs[0].upstream_track.as_ref().unwrap();
         assert_eq!(t.ahead, 0);
         assert_eq!(t.behind, 0);

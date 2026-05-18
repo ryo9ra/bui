@@ -71,10 +71,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::Magenta),
             ),
             Span::styled(
-                format!(
-                    "    Ctrl-D/U scroll · {} patch lines",
-                    diff.patch.len()
-                ),
+                format!("    Ctrl-D/U scroll · {} patch lines", diff.patch.len()),
                 dim.add_modifier(Modifier::DIM),
             ),
         ]),

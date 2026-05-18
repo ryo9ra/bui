@@ -25,7 +25,9 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(" "),
             Span::styled(
                 frame.to_string(),
-                Style::default().fg(spinner_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(spinner_color)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" "),
             Span::styled(pending.desc.clone(), Style::default().fg(spinner_color)),

@@ -55,40 +55,35 @@ pub fn delete_branch(workdir: &Path, remote: &str, branch: &str) -> Result<()> {
 }
 
 pub fn push(workdir: &Path) -> Result<()> {
+    // Always push the current branch to the same-name remote branch and
+    // (re)bind tracking. This collapses three cases into one invocation:
+    //   - no upstream yet (would otherwise need a "--set-upstream" retry),
+    //   - upstream already points to the same-name remote (no-op vs `git push`),
+    //   - upstream points to a different-name remote (plain `git push` would
+    //     fail with "upstream branch ... does not match").
     let out = Command::new("git")
         .current_dir(workdir)
-        .args(["push"])
+        .args(["push", "-u", "origin", "HEAD"])
         .output()?;
     if out.status.success() {
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    // First push of a fresh branch: auto-retry with --set-upstream so the
-    // user doesn't have to think about it. Matches lazygit's behaviour.
-    if stderr.contains("has no upstream branch") {
-        let retry = Command::new("git")
-            .current_dir(workdir)
-            .args(["push", "-u", "origin", "HEAD"])
-            .output()?;
-        if retry.status.success() {
-            return Ok(());
-        }
-        return Err(anyhow!("{}", first_useful_line(&retry.stderr)));
-    }
     // Diverged history: bui can offer a force-with-lease retry, so emit a
     // stable marker the App can match against in on_task_result.
     if stderr.contains("non-fast-forward") || stderr.contains("[rejected]") {
-        return Err(anyhow!(
-            "non-fast-forward: remote has diverged"
-        ));
+        return Err(anyhow!("non-fast-forward: remote has diverged"));
     }
     Err(anyhow!("{}", first_useful_line(stderr.as_bytes())))
 }
 
 pub fn push_force_with_lease(workdir: &Path) -> Result<()> {
+    // Mirror push(): always target origin/<current-branch> and rebind
+    // tracking, so a force-with-lease retry works regardless of whether
+    // the original push failure was upstream-mismatch or non-fast-forward.
     let out = Command::new("git")
         .current_dir(workdir)
-        .args(["push", "--force-with-lease"])
+        .args(["push", "--force-with-lease", "-u", "origin", "HEAD"])
         .output()?;
     if !out.status.success() {
         return Err(anyhow!("{}", first_useful_line(&out.stderr)));

@@ -240,7 +240,10 @@ fn list_returns_committerdate_descending() {
         .collect();
     let i_newer = names.iter().position(|n| n == "newer").unwrap();
     let i_older = names.iter().position(|n| n == "older").unwrap();
-    assert!(i_newer < i_older, "newer should sort before older: {names:?}");
+    assert!(
+        i_newer < i_older,
+        "newer should sort before older: {names:?}"
+    );
 }
 
 #[test]
@@ -314,7 +317,10 @@ fn init_work_and_bare_upstream() -> (TempDir, TempDir) {
         String::from_utf8_lossy(&out.stderr)
     );
     run_git(work.path(), &["config", "user.name", "bui-test"]);
-    run_git(work.path(), &["config", "user.email", "bui-test@example.com"]);
+    run_git(
+        work.path(),
+        &["config", "user.email", "bui-test@example.com"],
+    );
     run_git(work.path(), &["config", "commit.gpgsign", "false"]);
     std::fs::write(work.path().join("README"), "test\n").unwrap();
     run_git(work.path(), &["add", "."]);
@@ -399,16 +405,64 @@ fn push_sets_upstream_automatically_for_new_branch() {
     // Upstream tracking should be configured on the working copy.
     let upstream_cfg = Command::new("git")
         .current_dir(work.path())
-        .args([
-            "rev-parse",
-            "--abbrev-ref",
-            "feature/new@{upstream}",
-        ])
+        .args(["rev-parse", "--abbrev-ref", "feature/new@{upstream}"])
         .output()
         .unwrap();
     assert!(upstream_cfg.status.success());
-    let upstream_name = String::from_utf8(upstream_cfg.stdout).unwrap().trim().to_string();
+    let upstream_name = String::from_utf8(upstream_cfg.stdout)
+        .unwrap()
+        .trim()
+        .to_string();
     assert_eq!(upstream_name, "origin/feature/new");
+}
+
+#[test]
+fn push_rebinds_tracking_when_upstream_name_mismatches() {
+    let (work, upstream) = init_work_and_bare_upstream();
+    let repo = CliRepo::at(work.path().to_path_buf());
+
+    // Create a new local branch but leave its upstream pointing at
+    // origin/main (this is what `git checkout -b temp1` inherits when the
+    // local tracking config is set up that way). Plain `git push` would
+    // fail here with "The upstream branch of your current branch does not
+    // match the name of your current branch."
+    run_git(work.path(), &["checkout", "-q", "-b", "temp1"]);
+    run_git(
+        work.path(),
+        &["branch", "--set-upstream-to=origin/main", "temp1"],
+    );
+    commit_on(work.path(), "marker", "on temp1");
+
+    repo.push().unwrap();
+
+    let upstream_branches: Vec<String> = String::from_utf8(
+        Command::new("git")
+            .current_dir(upstream.path())
+            .args(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .lines()
+    .map(|s| s.to_string())
+    .collect();
+    assert!(
+        upstream_branches.contains(&"temp1".to_string()),
+        "expected origin/temp1 to exist after push, got: {upstream_branches:?}"
+    );
+
+    let upstream_cfg = Command::new("git")
+        .current_dir(work.path())
+        .args(["rev-parse", "--abbrev-ref", "temp1@{upstream}"])
+        .output()
+        .unwrap();
+    assert!(upstream_cfg.status.success());
+    let upstream_name = String::from_utf8(upstream_cfg.stdout)
+        .unwrap()
+        .trim()
+        .to_string();
+    assert_eq!(upstream_name, "origin/temp1");
 }
 
 #[test]
@@ -595,11 +649,20 @@ fn checkout_remote_tracking_creates_local_branch_with_upstream() {
         .unwrap();
     assert!(out.status.success());
     run_git(other.path(), &["config", "user.name", "bui-test"]);
-    run_git(other.path(), &["config", "user.email", "bui-test@example.com"]);
+    run_git(
+        other.path(),
+        &["config", "user.email", "bui-test@example.com"],
+    );
     run_git(other.path(), &["config", "commit.gpgsign", "false"]);
-    run_git(other.path(), &["checkout", "-q", "-b", "feature/from-elsewhere"]);
+    run_git(
+        other.path(),
+        &["checkout", "-q", "-b", "feature/from-elsewhere"],
+    );
     commit_on(other.path(), "f", "f");
-    run_git(other.path(), &["push", "-q", "-u", "origin", "feature/from-elsewhere"]);
+    run_git(
+        other.path(),
+        &["push", "-q", "-u", "origin", "feature/from-elsewhere"],
+    );
 
     // The bui-side clone fetches and gains the remote-tracking ref.
     let repo = CliRepo::at(work.path().to_path_buf());
@@ -613,11 +676,8 @@ fn checkout_remote_tracking_creates_local_branch_with_upstream() {
     assert!(!names_before.contains(&"feature/from-elsewhere".to_string()));
 
     // Create + checkout a tracking branch via the new API.
-    repo.checkout_remote_tracking(
-        "feature/from-elsewhere",
-        "origin/feature/from-elsewhere",
-    )
-    .unwrap();
+    repo.checkout_remote_tracking("feature/from-elsewhere", "origin/feature/from-elsewhere")
+        .unwrap();
 
     // Local branch exists and is current.
     let branches = repo.list_local_branches().unwrap();
@@ -656,7 +716,10 @@ fn set_upstream_configures_tracking_for_local_branch() {
     // work to do.
     run_git(work.path(), &["checkout", "-q", "-b", "feature/track-me"]);
     commit_on(work.path(), "m", "marker");
-    run_git(work.path(), &["push", "-q", "-u", "origin", "feature/track-me"]);
+    run_git(
+        work.path(),
+        &["push", "-q", "-u", "origin", "feature/track-me"],
+    );
     run_git(work.path(), &["branch", "--unset-upstream"]);
 
     repo.set_upstream("feature/track-me", "origin/feature/track-me")
@@ -682,7 +745,10 @@ fn pull_without_upstream_returns_actionable_error() {
     let repo = CliRepo::at(work.path().to_path_buf());
 
     // A fresh branch with no upstream.
-    run_git(work.path(), &["checkout", "-q", "-b", "feature/no-upstream"]);
+    run_git(
+        work.path(),
+        &["checkout", "-q", "-b", "feature/no-upstream"],
+    );
     let err = repo.pull().expect_err("pull without upstream should fail");
     let msg = format!("{err}");
     assert!(
@@ -694,7 +760,10 @@ fn pull_without_upstream_returns_actionable_error() {
         "expected message to point at the upstream picker, got: {msg}"
     );
     // The redundant "git pull failed:" prefix is gone.
-    assert!(!msg.contains("git pull failed"), "unexpected redundant prefix in: {msg}");
+    assert!(
+        !msg.contains("git pull failed"),
+        "unexpected redundant prefix in: {msg}"
+    );
 }
 
 #[test]
@@ -705,7 +774,10 @@ fn delete_remote_branch_removes_it_from_upstream() {
     // Create + push a fresh branch so the bare upstream has it.
     run_git(work.path(), &["checkout", "-q", "-b", "feature/remove-me"]);
     commit_on(work.path(), "x", "x");
-    run_git(work.path(), &["push", "-q", "-u", "origin", "feature/remove-me"]);
+    run_git(
+        work.path(),
+        &["push", "-q", "-u", "origin", "feature/remove-me"],
+    );
 
     // Sanity check: it exists on upstream.
     let before: Vec<String> = String::from_utf8(
@@ -723,7 +795,8 @@ fn delete_remote_branch_removes_it_from_upstream() {
     assert!(before.contains(&"feature/remove-me".to_string()));
 
     // Delete via bui.
-    repo.delete_remote_branch("origin", "feature/remove-me").unwrap();
+    repo.delete_remote_branch("origin", "feature/remove-me")
+        .unwrap();
 
     let after: Vec<String> = String::from_utf8(
         Command::new("git")
@@ -770,7 +843,10 @@ fn pull_brings_in_commits_pushed_elsewhere() {
         .unwrap();
     assert!(out.status.success());
     run_git(other.path(), &["config", "user.name", "bui-test"]);
-    run_git(other.path(), &["config", "user.email", "bui-test@example.com"]);
+    run_git(
+        other.path(),
+        &["config", "user.email", "bui-test@example.com"],
+    );
     run_git(other.path(), &["config", "commit.gpgsign", "false"]);
     commit_on(other.path(), "outside", "from elsewhere");
     run_git(other.path(), &["push", "-q"]);
@@ -906,7 +982,8 @@ fn create_from_explicit_start_point() {
     };
     commit_on(dir.path(), "advance", "advance main");
 
-    repo.create_branch("from-initial", Some(&initial_sha)).unwrap();
+    repo.create_branch("from-initial", Some(&initial_sha))
+        .unwrap();
     let from_initial = repo
         .list_local_branches()
         .unwrap()

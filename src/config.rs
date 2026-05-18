@@ -133,7 +133,10 @@ impl RawConfig {
         let t = self.theme;
         Config {
             theme: Theme {
-                current_branch: parse_color_or(t.current_branch.as_deref(), defaults.current_branch),
+                current_branch: parse_color_or(
+                    t.current_branch.as_deref(),
+                    defaults.current_branch,
+                ),
                 remote_branch: parse_color_or(t.remote_branch.as_deref(), defaults.remote_branch),
                 merged_tag: parse_color_or(t.merged_tag.as_deref(), defaults.merged_tag),
                 worktree_tag: parse_color_or(t.worktree_tag.as_deref(), defaults.worktree_tag),

@@ -325,8 +325,9 @@ src/git/
                        set_upstream / checkout_tracking / branch_diff /
                        merged & worktree augmentation
     remote.rs          fetch / pull / push / force-with-lease /
-                       delete_branch (push --delete) / no-upstream auto-
-                       set-upstream retry
+                       delete_branch (push --delete). push always uses
+                       `-u origin HEAD` so a missing or mis-named
+                       upstream is reconciled in a single call.
     worktree.rs        list / add (with optional -b) / remove
 ```
 

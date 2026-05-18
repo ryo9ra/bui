@@ -21,7 +21,10 @@ pub enum Action {
     Pull,
     Push,
     PushForceWithLease,
-    DeleteRemoteBranch { remote: String, branch: String },
+    DeleteRemoteBranch {
+        remote: String,
+        branch: String,
+    },
 }
 
 pub fn spawn(
@@ -42,15 +45,18 @@ pub fn spawn(
 
 fn execute(repo: &dyn Repo, action: Action) -> Result<Outcome, String> {
     match action {
-        Action::Fetch {
-            remote,
-            prune_tags,
-        } => repo
+        Action::Fetch { remote, prune_tags } => repo
             .fetch(remote.as_deref(), prune_tags)
             .map(|_| Outcome::Fetched)
             .map_err(|e| e.to_string()),
-        Action::Pull => repo.pull().map(|_| Outcome::Pulled).map_err(|e| e.to_string()),
-        Action::Push => repo.push().map(|_| Outcome::Pushed).map_err(|e| e.to_string()),
+        Action::Pull => repo
+            .pull()
+            .map(|_| Outcome::Pulled)
+            .map_err(|e| e.to_string()),
+        Action::Push => repo
+            .push()
+            .map(|_| Outcome::Pushed)
+            .map_err(|e| e.to_string()),
         Action::PushForceWithLease => repo
             .push_force_with_lease()
             .map(|_| Outcome::Pushed)

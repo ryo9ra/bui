@@ -70,11 +70,7 @@ pub(crate) fn parse_porcelain(stdout: &str, current_path: &str) -> Vec<Worktree>
         } else if let Some(h) = t.strip_prefix("HEAD ") {
             head = Some(h.to_string());
         } else if let Some(refn) = t.strip_prefix("branch ") {
-            branch = Some(
-                refn.strip_prefix("refs/heads/")
-                    .unwrap_or(refn)
-                    .to_string(),
-            );
+            branch = Some(refn.strip_prefix("refs/heads/").unwrap_or(refn).to_string());
         }
         // `detached` lines and other markers are ignored — branch stays None.
     }
