@@ -9,32 +9,35 @@ staging, committing, merging, and rebasing are deliberately out of scope.
 
 ## Status
 
-v0.1 feature-complete; not yet published to crates.io. See
+v0.1 + v0.2 + v0.3 feature-complete; not yet published to crates.io. See
 [`docs/spec.md`](docs/spec.md) for the formal scope and roadmap.
 
-## v0.1 features
+## Features
 
-- Local branch list with the latest commit on each row
-- Move with `j`/`k`/arrows; jump with `g`/`G`
-- Switch (`Enter`), create (`c`), rename (`r`), delete (`d` / `D`)
-- Incremental search with `/`
-- Confirm dialog for destructive operations
-- Help overlay (`?`); status bar for results, errors, and a spinner during
-  async ops
-
-Coming after v0.1:
-
-- **v0.2** — remote branches, `fetch`/`pull`/`push`, right detail pane,
-  filters/sorts, config file
-- **v0.3** — worktrees, branch-to-branch diff in the right pane
-- See [`docs/spec.md`](docs/spec.md) for the full roadmap
+- **Local branches** — list with latest commit, ahead/behind upstream
+  badge, merged / in-worktree markers; switch (`Enter`), create (`c`, or
+  `C` from the selected ref), rename (`r`), delete (`d` / `D`), set
+  upstream (`u`)
+- **Remote branches** — browse, check out as a tracking branch
+  (`Enter`), delete on the remote (`d`)
+- **Sync** — `fetch` / `pull` / `push`, with force-with-lease on
+  non-fast-forward (always confirmed)
+- **Worktrees** — list, add, and remove worktrees from their own tab
+- **Detail & diff pane** — branch details on the right; `v` toggles a
+  branch-to-branch unified diff, scrollable with `Ctrl-D` / `Ctrl-U`
+- **Navigation** — `j`/`k`/arrows, `g`/`G`, incremental search (`/`),
+  sort (`s`), merged/unmerged filter (`F`)
+- **Safety & feedback** — confirm dialog for destructive operations,
+  status bar with a spinner during async ops, context key hints, help
+  overlay (`?`)
+- **Config** — TOML config file with a customizable theme
 
 ## Install
 
 Not yet published. From source:
 
 ```sh
-git clone https://github.com/RyotaSugawara/bui
+git clone https://github.com/ryo9ra/bui
 cd bui
 cargo install --path .
 ```
