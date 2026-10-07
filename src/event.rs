@@ -15,9 +15,13 @@ pub type TaskId = u64;
 
 pub enum Outcome {
     Fetched,
+    /// `fetch --prune` finished as the first half of clean-gone (`X`).
+    FetchedForCleanGone,
     Pulled,
     Pushed,
-    RemoteBranchDeleted { full_name: String },
+    RemoteBranchDeleted {
+        full_name: String,
+    },
 }
 
 pub struct EventChannel {

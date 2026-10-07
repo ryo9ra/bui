@@ -992,3 +992,76 @@ fn create_from_explicit_start_point() {
         .unwrap();
     assert!(initial_sha.starts_with(&from_initial.short_sha));
 }
+
+#[test]
+fn clean_gone_fetches_prunes_and_deletes_gone_branches() {
+    use bui::app::App;
+    use bui::config::Config;
+    use bui::task::Action;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Arc;
+
+    let upstream = init_repo();
+    run_git(upstream.path(), &["branch", "merged-pr"]);
+    run_git(upstream.path(), &["switch", "-q", "-c", "squashed-pr"]);
+    commit_on(upstream.path(), "squash.txt", "squash me");
+    run_git(upstream.path(), &["switch", "-q", "main"]);
+    run_git(upstream.path(), &["branch", "kept"]);
+
+    let clone_dir = tempfile::tempdir().expect("create clone tempdir");
+    let out = Command::new("git")
+        .args([
+            "clone",
+            "-q",
+            upstream.path().to_str().unwrap(),
+            clone_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn git clone");
+    assert!(out.status.success());
+    let clone = clone_dir.path();
+    for b in ["merged-pr", "squashed-pr", "kept"] {
+        run_git(
+            clone,
+            &["branch", "-q", "--track", b, &format!("origin/{b}")],
+        );
+    }
+
+    // The PRs land upstream and their branches are deleted.
+    run_git(
+        upstream.path(),
+        &["branch", "-D", "merged-pr", "squashed-pr"],
+    );
+
+    let repo = Arc::new(CliRepo::at(clone.to_path_buf()));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut app = App::new(repo.clone(), tx, Config::default());
+    app.refresh(None);
+
+    let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+    app.on_key(key('X'));
+    let (id, action) = rx.try_recv().expect("dispatched action");
+    let Action::FetchForCleanGone { prune_tags } = action else {
+        panic!("expected FetchForCleanGone");
+    };
+    // Run the worker's half inline.
+    repo.fetch(None, prune_tags).unwrap();
+    app.on_task_result(id, Ok(bui::event::Outcome::FetchedForCleanGone));
+
+    let prompt = &app.confirm.as_ref().expect("confirm opened").prompt;
+    assert!(prompt.contains("Delete 2 gone branches"));
+    assert!(prompt.contains("squashed-pr  (unmerged)"));
+
+    app.on_key(key('y'));
+    let names: Vec<String> = repo
+        .list_local_branches()
+        .unwrap()
+        .into_iter()
+        .map(|b| b.name)
+        .collect();
+    assert!(!names.contains(&"merged-pr".to_string()));
+    assert!(!names.contains(&"squashed-pr".to_string()));
+    assert!(names.contains(&"kept".to_string()));
+    assert!(names.contains(&"main".to_string()));
+    assert_eq!(app.status, "deleted 2 gone branches");
+}

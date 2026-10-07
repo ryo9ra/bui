@@ -38,6 +38,9 @@ Ctrl-D/U     scroll the Diff pane half a page (when v is active)
 s            toggle sort: recency ↔ name
 F            (Local) cycle filter: all → merged → unmerged → all
 f            fetch all remotes (async)
+X            clean gone: fetch --prune, then force-delete every local
+             branch whose upstream is gone (one confirm, lists them;
+             current / worktree branches are skipped)
 p            pull current branch (async)
 P            push current branch (async). On non-fast-forward,
              bui offers a force-with-lease retry via confirm.
