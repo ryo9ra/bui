@@ -22,6 +22,8 @@ v0.1 + v0.2 + v0.3 feature-complete; not yet published to crates.io. See
   (`Enter`), delete on the remote (`d`)
 - **Sync** — `fetch` / `pull` / `push`, with force-with-lease on
   non-fast-forward (always confirmed)
+- **Clean gone** — `X` runs `fetch --prune`, then deletes every local
+  branch whose upstream is gone after a single confirm
 - **Worktrees** — list, add, and remove worktrees from their own tab
 - **Detail & diff pane** — branch details on the right; `v` toggles a
   branch-to-branch unified diff, scrollable with `Ctrl-D` / `Ctrl-U`

@@ -114,6 +114,9 @@ that tab is active. Unlabelled keys work from anywhere.
 | Key   | Action                                                              |
 |-------|---------------------------------------------------------------------|
 | `f`   | `git fetch --all --prune [--prune-tags]` (async)                    |
+| `X`   | Clean gone: `fetch --prune` (async), then one confirm listing every |
+|       | local branch whose upstream is `[gone]` → `git branch -D` each.     |
+|       | Current / worktree-checked-out branches are skipped.                |
 | `p`   | `git pull` (async)                                                  |
 | `P`   | `git push` (async). On non-fast-forward, bui offers a              |
 |       | confirmable `--force-with-lease` retry.                             |
@@ -364,6 +367,7 @@ src/git/
 | C5   | Create local tracking branch from remote (`Enter` on Remote) | ✓ |
 | C6   | Delete remote branch (`d` on Remote, push --delete)  | ✓      |
 | C7   | `--prune-tags` (opt-in via config)                   | ✓ — `--prune` itself is always on |
+| C8   | Clean gone (`X`): fetch --prune + bulk-delete `[gone]` branches | ✓ (added 2026-10-07) |
 
 ### v0.4+ — Polish & power features
 
@@ -520,3 +524,24 @@ src/git/
   - **Out of scope for the wrapper feature.** Multi-step "cd to bui's
     suggestion then back" flows; integration with `direnv`; explicit
     `:cd <path>` command palette. Revisit if demand emerges.
+
+- **2026-10-07 — Clean gone (`X`) is fetch + one confirm + `-D`.**
+  The common post-merge chore (`git fetch --prune` → find `[gone]`
+  branches → delete them) collapses into one key. Decisions:
+
+  - **Fetch first, then confirm.** The candidate list is only known
+    after the prune-fetch, so `X` dispatches
+    `Action::FetchForCleanGone` and the confirm opens when the
+    worker reports back. The confirm lists the branches (first 8,
+    then "…and N more") and marks unmerged ones; default focus is
+    No like every destructive op.
+  - **`-D`, not `-d`.** Squash / rebase merges leave the local tip
+    unreachable from HEAD, so `-d` would refuse the main use case.
+    The upstream being gone plus the explicit list in the confirm
+    is the safety net.
+  - **Skipped, not failed.** The current branch and branches
+    checked out in another worktree are left alone and named in
+    the confirm / status line; bui does not remove worktrees here.
+  - Deletes run synchronously on the main thread like `d` / `D`
+    (local ref ops, fast). Per-branch failures are collected into
+    the status line instead of aborting the batch.

@@ -18,6 +18,11 @@ pub enum Action {
         remote: Option<String>,
         prune_tags: bool,
     },
+    /// `fetch --all --prune` as the first half of clean-gone (`X`). The
+    /// App collects `[gone]` branches from the refreshed list afterwards.
+    FetchForCleanGone {
+        prune_tags: bool,
+    },
     Pull,
     Push,
     PushForceWithLease,
@@ -48,6 +53,10 @@ fn execute(repo: &dyn Repo, action: Action) -> Result<Outcome, String> {
         Action::Fetch { remote, prune_tags } => repo
             .fetch(remote.as_deref(), prune_tags)
             .map(|_| Outcome::Fetched)
+            .map_err(|e| e.to_string()),
+        Action::FetchForCleanGone { prune_tags } => repo
+            .fetch(None, prune_tags)
+            .map(|_| Outcome::FetchedForCleanGone)
             .map_err(|e| e.to_string()),
         Action::Pull => repo
             .pull()

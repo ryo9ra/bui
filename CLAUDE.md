@@ -16,7 +16,7 @@ badge, hint footer, middle-truncated long names, proportional
 detail pane, row flash on create/rename/add-worktree) and the A8
 extension (full patch in the Diff pane with `Ctrl-D`/`Ctrl-U`
 scroll, cache keyed on the (target, base) tuple so checkout / pull
-stay in sync). `cargo test` runs 165 tests (135 unit + 30
-integration). See `git log` for per-feature history.
+stay in sync). `cargo test` runs 172 tests (140 unit + 32
+integration). Clean gone (`X`, C8) added 2026-10-07. See `git log` for per-feature history.
 When asked to implement a feature, check `docs/spec.md` — if it
 belongs to v0.3 / future, confirm with the user first.

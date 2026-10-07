@@ -280,10 +280,78 @@ pub enum ConfirmChoice {
 }
 
 pub enum ConfirmAction {
-    DeleteBranch { name: String, force: bool },
-    DeleteRemoteBranch { remote: String, branch: String },
+    DeleteBranch {
+        name: String,
+        force: bool,
+    },
+    DeleteRemoteBranch {
+        remote: String,
+        branch: String,
+    },
     ForceWithLeasePush,
-    RemoveWorktree { path: String },
+    RemoveWorktree {
+        path: String,
+    },
+    /// Force-delete every listed local branch whose upstream is gone.
+    CleanGone {
+        names: Vec<String>,
+    },
+}
+
+/// Max branch names listed inside the clean-gone confirm before the
+/// rest collapse into "…and N more".
+const CLEAN_GONE_PREVIEW: usize = 8;
+
+/// Local branches whose upstream is `[gone]`, split into what clean-gone
+/// will delete and what it must leave alone (the current branch, or a
+/// branch checked out in another worktree — `git branch -D` refuses both).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct GoneCandidates {
+    pub delete: Vec<String>,
+    /// Subset of `delete` whose tip isn't reachable from HEAD.
+    pub unmerged: Vec<String>,
+    pub skipped: Vec<String>,
+}
+
+pub(crate) fn gone_candidates(branches: &[Branch]) -> GoneCandidates {
+    let mut out = GoneCandidates::default();
+    for b in branches {
+        if !b.upstream_track.as_ref().is_some_and(|t| t.gone) {
+            continue;
+        }
+        if b.is_current || b.worktree_path.is_some() {
+            out.skipped.push(b.name.clone());
+            continue;
+        }
+        if !b.is_merged {
+            out.unmerged.push(b.name.clone());
+        }
+        out.delete.push(b.name.clone());
+    }
+    out
+}
+
+fn clean_gone_prompt(c: &GoneCandidates) -> String {
+    let n = c.delete.len();
+    let noun = if n == 1 { "branch" } else { "branches" };
+    let mut lines = vec![format!("Delete {n} gone {noun}? (git branch -D)")];
+    for name in c.delete.iter().take(CLEAN_GONE_PREVIEW) {
+        if c.unmerged.contains(name) {
+            lines.push(format!("{name}  (unmerged)"));
+        } else {
+            lines.push(name.clone());
+        }
+    }
+    if n > CLEAN_GONE_PREVIEW {
+        lines.push(format!("…and {} more", n - CLEAN_GONE_PREVIEW));
+    }
+    if !c.skipped.is_empty() {
+        lines.push(format!(
+            "skipping (current / worktree): {}",
+            c.skipped.join(", ")
+        ));
+    }
+    lines.join("\n")
 }
 
 impl App {
@@ -425,6 +493,10 @@ impl App {
             Ok(Outcome::Fetched) => {
                 self.refresh(None);
                 self.status = "fetched".to_string();
+            }
+            Ok(Outcome::FetchedForCleanGone) => {
+                self.refresh_keeping_cursor();
+                self.offer_clean_gone();
             }
             Ok(Outcome::Pulled) => {
                 self.refresh(None);
@@ -702,6 +774,13 @@ impl App {
                     "fetching",
                 );
             }
+            KeyCode::Char('X') if self.pending_task.is_none() => {
+                let prune_tags = self.config.fetch.prune_tags;
+                self.dispatch(
+                    Action::FetchForCleanGone { prune_tags },
+                    "fetching (clean gone)",
+                );
+            }
             KeyCode::Char('p') if self.pending_task.is_none() => {
                 self.dispatch(Action::Pull, "pulling");
             }
@@ -973,7 +1052,52 @@ impl App {
                 self.dispatch(Action::PushForceWithLease, "force-with-lease push");
             }
             ConfirmAction::RemoveWorktree { path } => self.do_remove_worktree(&path),
+            ConfirmAction::CleanGone { names } => self.do_clean_gone(&names),
         }
+    }
+
+    /// Second half of `X`: after the prune-fetch refreshed the list, ask
+    /// once for every `[gone]` branch that can be deleted.
+    fn offer_clean_gone(&mut self) {
+        let c = gone_candidates(&self.local_branches);
+        if c.delete.is_empty() {
+            self.status = if c.skipped.is_empty() {
+                "fetched · no gone branches".to_string()
+            } else {
+                format!(
+                    "fetched · no deletable gone branches (skipped: {})",
+                    c.skipped.join(", ")
+                )
+            };
+            return;
+        }
+        self.status = format!("fetched · {} gone — confirm delete", c.delete.len());
+        self.confirm = Some(ConfirmState {
+            prompt: clean_gone_prompt(&c),
+            action: ConfirmAction::CleanGone { names: c.delete },
+            focus: ConfirmChoice::No,
+        });
+    }
+
+    fn do_clean_gone(&mut self, names: &[String]) {
+        let mut deleted = 0usize;
+        let mut failed: Vec<String> = Vec::new();
+        for name in names {
+            match self.repo.delete_branch(name, true) {
+                Ok(()) => deleted += 1,
+                Err(e) => failed.push(format!("{name}: {e}")),
+            }
+        }
+        self.refresh_keeping_cursor();
+        let noun = if deleted == 1 { "branch" } else { "branches" };
+        self.status = if failed.is_empty() {
+            format!("deleted {deleted} gone {noun}")
+        } else {
+            format!(
+                "deleted {deleted} gone {noun} · error: {}",
+                failed.join("; ")
+            )
+        };
     }
 
     fn do_delete_branch(&mut self, name: &str, force: bool) {
@@ -1687,6 +1811,88 @@ mod tests {
         // Only one dispatch should have reached the worker channel.
         let (_, _) = rx.try_recv().unwrap();
         assert!(rx.try_recv().is_err());
+    }
+
+    fn br_gone(name: &str, current: bool, merged: bool, wt: Option<&str>) -> Branch {
+        let mut b = br(name, current);
+        b.is_merged = merged;
+        b.worktree_path = wt.map(str::to_string);
+        b.upstream_track = Some(crate::git::UpstreamTrack {
+            gone: true,
+            ..Default::default()
+        });
+        b
+    }
+
+    #[test]
+    fn gone_candidates_skips_current_worktree_and_non_gone() {
+        let mut tracked = br("tracked", false);
+        tracked.upstream_track = Some(crate::git::UpstreamTrack::default());
+        let branches = vec![
+            br_gone("main", true, true, None),
+            br_gone("feat/a", false, true, None),
+            br_gone("feat/b", false, false, None),
+            br_gone("feat/wt", false, true, Some("/tmp/wt")),
+            tracked,
+            br("local-only", false),
+        ];
+        let c = gone_candidates(&branches);
+        assert_eq!(c.delete, vec!["feat/a", "feat/b"]);
+        assert_eq!(c.unmerged, vec!["feat/b"]);
+        assert_eq!(c.skipped, vec!["main", "feat/wt"]);
+    }
+
+    #[test]
+    fn clean_gone_prompt_lists_branches_and_truncates() {
+        let names: Vec<String> = (0..10).map(|i| format!("b{i}")).collect();
+        let c = GoneCandidates {
+            delete: names.clone(),
+            unmerged: vec!["b1".to_string()],
+            skipped: vec!["main".to_string()],
+        };
+        let p = clean_gone_prompt(&c);
+        let lines: Vec<&str> = p.lines().collect();
+        assert_eq!(lines[0], "Delete 10 gone branches? (git branch -D)");
+        assert_eq!(lines[2], "b1  (unmerged)");
+        assert!(lines.contains(&"…and 2 more"));
+        assert!(!lines.contains(&"b9"));
+        assert!(lines.last().unwrap().contains("main"));
+    }
+
+    #[test]
+    fn pressing_capital_x_dispatches_clean_gone_fetch() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut app = App::new(Arc::new(NoopRepo), tx, Config::default());
+        app.on_key(k(KeyCode::Char('X')));
+        assert!(app.pending_task.is_some());
+        let (_, action) = rx.try_recv().expect("dispatched action");
+        assert!(matches!(
+            action,
+            Action::FetchForCleanGone { prune_tags: false }
+        ));
+    }
+
+    #[test]
+    fn offer_clean_gone_opens_confirm_focused_on_no() {
+        let mut app = app_with(vec![
+            br_gone("main", true, true, None),
+            br_gone("feat/a", false, true, None),
+        ]);
+        app.offer_clean_gone();
+        let confirm = app.confirm.as_ref().expect("confirm opened");
+        assert_eq!(confirm.focus, ConfirmChoice::No);
+        match &confirm.action {
+            ConfirmAction::CleanGone { names } => assert_eq!(names, &vec!["feat/a".to_string()]),
+            _ => panic!("expected CleanGone"),
+        }
+    }
+
+    #[test]
+    fn offer_clean_gone_with_nothing_to_delete_only_sets_status() {
+        let mut app = app_with(vec![br("main", true), br("foo", false)]);
+        app.offer_clean_gone();
+        assert!(app.confirm.is_none());
+        assert_eq!(app.status, "fetched · no gone branches");
     }
 
     #[test]

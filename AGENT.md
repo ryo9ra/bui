@@ -19,7 +19,7 @@ features in `docs/spec.md` are wired:
   G6 theme · G7 config
 - v0.3: A8 branch diff (`v` toggle) · C4 force-with-lease (auto-confirm
   on non-ff) · C5 Remote `Enter` → tracking · C6 remote-branch delete ·
-  C7 opt-in `--prune-tags` · E1-E4 Worktree tab (list / add / remove /
+  C7 opt-in `--prune-tags` · C8 clean gone (`X`) · E1-E4 Worktree tab (list / add / remove /
   cd hint), with config-driven path prefill
 - UX polish (2026-05-18): Esc / Ctrl-C quit · proportional detail pane
   · middle-truncated long names · context hint footer · ahead/behind
@@ -29,7 +29,7 @@ features in `docs/spec.md` are wired:
   invalidation keys off the (target, base) tuple so checkout / pull
   stay in sync.
 
-`cargo test` runs 135 unit + 30 integration = 165 tests. When asked to
+`cargo test` runs 140 unit + 32 integration = 172 tests. When asked to
 add a feature, cross-reference `docs/spec.md` first — if it belongs
 to v0.3 / future, confirm with the user before implementing.
 

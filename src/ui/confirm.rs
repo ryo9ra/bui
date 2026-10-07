@@ -9,7 +9,11 @@ use ratatui::{
 use crate::app::{ConfirmChoice, ConfirmState};
 
 pub fn draw(f: &mut Frame, area: Rect, confirm: &ConfirmState) {
-    let popup = centered_rect(64, 8, area);
+    // Multi-line prompts (e.g. clean-gone's branch list) grow the popup:
+    // borders + blank/buttons/blank/hint rows + one per prompt line.
+    let prompt_lines: Vec<&str> = confirm.prompt.lines().collect();
+    let height = (prompt_lines.len() as u16 + 7).min(area.height);
+    let popup = centered_rect(64, height, area);
     f.render_widget(Clear, popup);
     let block = Block::default()
         .title(" Confirm ")
@@ -19,9 +23,13 @@ pub fn draw(f: &mut Frame, area: Rect, confirm: &ConfirmState) {
     let yes_style = button_style(Color::Green, confirm.focus == ConfirmChoice::Yes);
     let no_style = button_style(Color::Red, confirm.focus == ConfirmChoice::No);
 
-    let body = vec![
-        Line::from(""),
-        Line::from(Span::raw(confirm.prompt.clone())).alignment(Alignment::Center),
+    let mut body = vec![Line::from("")];
+    body.extend(
+        prompt_lines
+            .iter()
+            .map(|l| Line::from(Span::raw(l.to_string())).alignment(Alignment::Center)),
+    );
+    body.extend([
         Line::from(""),
         Line::from(vec![
             Span::styled("  Yes  ", yes_style),
@@ -35,7 +43,7 @@ pub fn draw(f: &mut Frame, area: Rect, confirm: &ConfirmState) {
             Style::default().fg(Color::DarkGray),
         ))
         .alignment(Alignment::Center),
-    ];
+    ]);
     f.render_widget(Paragraph::new(body).block(block), popup);
 }
 
